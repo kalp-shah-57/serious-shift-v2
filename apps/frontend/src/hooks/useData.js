@@ -8,8 +8,15 @@ const cache = {}
 // Default to https:// if the value is given without a scheme (a common
 // mistake — a scheme-less URL would otherwise be treated as a relative path),
 // and trim any trailing slash.
-const RAW_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').trim().replace(/\/$/, '')
-const API_BASE = RAW_BASE && !/^https?:\/\//.test(RAW_BASE) ? `https://${RAW_BASE}` : RAW_BASE
+const RAW_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').trim().replace(/\/+$/, '')
+export const API_BASE = RAW_BASE && !/^https?:\/\//i.test(RAW_BASE) ? `https://${RAW_BASE}` : RAW_BASE
+
+// One-time log so you can confirm WHICH build is live and what base it resolved to.
+// If you don't see this line (or it shows a scheme-less/old value), the browser is
+// still running a pre-rebuild bundle — redeploy the frontend and hard-refresh.
+if (typeof window !== 'undefined') {
+  console.info('[useData] API base =', API_BASE || '(same-origin)')
+}
 
 export function useData(file) {
   const [data, setData] = useState(cache[file] || null)
