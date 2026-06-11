@@ -14,13 +14,21 @@ Railway project "serious-shift"
 
 ## How GitHub deploy works here
 Railway's "Deploy from GitHub repo" auto-builds and redeploys on every push. This
-is a **monorepo**, so create **one service per app from the same repo**, each with
-its own **Root Directory**:
-- `apps/backend` and `apps/pipeline` → Railway uses their **Dockerfiles** (build
-  context is the subfolder; both Dockerfiles only copy files within it).
-- `apps/frontend` → no Dockerfile → **Nixpacks** auto-detects Next.js.
+is a **monorepo**, so create **one service per app from the same repo**.
 
-Set each service's **Watch Paths** (e.g. `apps/backend/**`) so one app's change
+> **REQUIRED — set each service's Root Directory.** This is the #1 gotcha: if it's
+> left at the repo root, the builder scans `./` (no single app there) and fails
+> with *"could not determine how to build the app."* In each service →
+> **Settings → Root Directory**, set:
+> `apps/backend` · `apps/frontend` · `apps/pipeline`.
+
+Once Root Directory is set, Railway reads that folder:
+- `apps/backend`, `apps/pipeline` → their `railway.json` pins the **Dockerfile**
+  builder (backend also sets healthcheck `/health`; pipeline sets the weekly
+  **cron** `0 22 * * 0`, so you don't configure those by hand).
+- `apps/frontend` → no Dockerfile → Railway auto-detects Next.js (`npm` build/start).
+
+Also set each service's **Watch Paths** (e.g. `apps/backend/**`) so one app's change
 doesn't rebuild the others. **Postgres is added separately** (a Railway database,
 not from GitHub) and referenced as `${{Postgres.DATABASE_URL}}`.
 
