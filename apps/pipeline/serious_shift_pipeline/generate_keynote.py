@@ -277,7 +277,7 @@ def main():
             output = {"intro": INTRO, "sections": sections}
             db.execute(conn, """INSERT INTO documents (key, body) VALUES ('keynote', %s::jsonb)
                 ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()""",
-                (json.dumps(output),))
+                (json.dumps(output, default=str),))  # default=str: any date/datetime → ISO string
             print(f"\nKeynote written to documents['keynote'] ({len(sections)} sections)")
 
 

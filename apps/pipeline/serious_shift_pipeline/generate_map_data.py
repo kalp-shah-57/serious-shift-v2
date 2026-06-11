@@ -1548,7 +1548,7 @@ def _write_map_document(conn, out):
     """Store the assembled map as documents['map'] — served by the backend at /api/map."""
     conn.execute("""INSERT INTO documents (key, body) VALUES ('map', %s::jsonb)
         ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()""",
-        (json.dumps(out),))
+        (json.dumps(out, default=str),))  # default=str: Postgres date/datetime → ISO string
     conn.commit()
 
 
