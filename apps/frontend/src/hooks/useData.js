@@ -13,10 +13,11 @@ export function useData(file) {
 
   useEffect(() => {
     if (cache[file]) return
-    fetch(`${API_BASE}/api/${file.replace(/\.json$/, '')}`)
-      .then(r => r.json())
+    const url = `${API_BASE}/api/${file.replace(/\.json$/, '')}`
+    fetch(url)
+      .then(r => { if (!r.ok) throw new Error(`${url} → ${r.status}`); return r.json() })
       .then(d => { cache[file] = d; setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .catch(err => { console.error('useData fetch failed:', err); setLoading(false) })
   }, [file])
 
   return { data, loading }

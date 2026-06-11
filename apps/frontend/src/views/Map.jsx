@@ -67,10 +67,13 @@ export function MapError() {
         Map unavailable
       </p>
       <h1 className="font-editorial text-3xl text-cream">
-        Couldn&rsquo;t load <code>/data/map.json</code>.
+        Couldn&rsquo;t load the map.
       </h1>
       <p className="mt-4 text-neutral-400 text-sm">
-        Check that <code>public/data/map.json</code> exists and is valid JSON.
+        The app couldn&rsquo;t reach <code>/api/map</code>. Check that{' '}
+        <code>NEXT_PUBLIC_API_BASE</code> points at the backend and that the
+        database has a <code>map</code> document. See the browser console for the
+        exact error.
       </p>
     </div>
   )
