@@ -1,0 +1,55 @@
+name: pipeline
+
+# Lints and tests the Python pipeline block. SQL-validation tests run without a
+# database; integration tests run against a Postgres service container with the
+# packages/db migrations applied (DATABASE_URL gates them on).
+
+on:
+  push:
+    paths: ["apps/pipeline/**", "packages/db/**", ".github/workflows/pipeline.yml"]
+  pull_request:
+    paths: ["apps/pipeline/**", "packages/db/**", ".github/workflows/pipeline.yml"]
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: serious
+          POSTGRES_PASSWORD: serious
+          POSTGRES_DB: serious_shift
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U serious -d serious_shift"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://serious:serious@localhost:5432/serious_shift?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+
+      - name: Install dbmate + apply schema
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          sudo chmod +x /usr/local/bin/dbmate
+          DBMATE_MIGRATIONS_DIR=./migrations dbmate up
+        working-directory: packages/db
+
+      - name: Install pipeline (dev extras)
+        run: pip install -e ".[dev]"
+        working-directory: apps/pipeline
+
+      - name: Lint
+        run: |
+          ruff check serious_shift_pipeline tests
+          mypy serious_shift_pipeline || true   # advisory until fully typed
+        working-directory: apps/pipeline
+
+      - name: Test (SQL validation + live integration)
+        run: pytest -q
+        working-directory: apps/pipeline

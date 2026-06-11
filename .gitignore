@@ -1,0 +1,33 @@
+node_modules/
+**/node_modules/
+# monorepo build artifacts
+apps/frontend/.next/
+apps/frontend/out/
+apps/backend/target/
+# legacy SQLite source DB — kept locally as the ETL source, not committed
+# (migrate to Postgres via packages/db/etl; archive to object storage for prod)
+serious-shift.db
+# runtime pipeline logs
+logs/
+**/.env.local
+.env
+.env.local
+.DS_Store
+**/.DS_Store
+.obsidian/
+*\ 2/
+*\ 2.*
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+*.pyc
+.claude/
+**/.claude/
+.vercel/
+raw_content/
+*.db.bak*
+
+# python build artifacts
+*.egg-info/
+build/
+dist/

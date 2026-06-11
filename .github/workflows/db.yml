@@ -1,0 +1,95 @@
+name: db
+
+# Owns the data contract. On any change under packages/db, prove the migrations
+# apply cleanly to a real Postgres and (on demand) that the legacy SQLite import
+# is lossless. This is the live verification the local Docker run stands in for.
+
+on:
+  push:
+    paths: ["packages/db/**", ".github/workflows/db.yml"]
+  pull_request:
+    paths: ["packages/db/**", ".github/workflows/db.yml"]
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: serious
+          POSTGRES_PASSWORD: serious
+          POSTGRES_DB: serious_shift
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U serious -d serious_shift"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://serious:serious@localhost:5432/serious_shift?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: ./migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    defaults:
+      run:
+        working-directory: packages/db
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dbmate
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          sudo chmod +x /usr/local/bin/dbmate
+          dbmate --version
+
+      - name: Apply migrations
+        run: dbmate up
+
+      - name: Assert schema (expect 34 tables)
+        run: |
+          n=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'schema_migrations';")
+          echo "public tables: $n"
+          test "$n" -eq 34
+
+      - name: Rollback + re-apply (down/up reversibility)
+        run: |
+          dbmate rollback
+          dbmate up
+
+  etl-parity:
+    # Heavier: imports the committed legacy SQLite DB and proves losslessness.
+    # Runs on demand (and on changes to the ETL itself) rather than every PR.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: serious
+          POSTGRES_PASSWORD: serious
+          POSTGRES_DB: serious_shift
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U serious -d serious_shift"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://serious:serious@localhost:5432/serious_shift?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: ./migrations
+    defaults:
+      run:
+        working-directory: packages/db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: Install dbmate
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          sudo chmod +x /usr/local/bin/dbmate
+      - run: pip install "psycopg[binary]"
+      - name: Migrate + import + verify
+        run: |
+          dbmate up
+          python etl/sqlite_to_postgres.py --sqlite ../../serious-shift.db --truncate
+          python etl/verify_parity.py     --sqlite ../../serious-shift.db

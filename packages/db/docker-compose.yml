@@ -1,0 +1,27 @@
+# Local Postgres for developing the data layer, backend, and pipeline against.
+# Mirrors the managed Postgres (Neon) used in dev/staging/prod.
+#
+#   docker compose up -d
+#   export DATABASE_URL=postgres://serious:serious@localhost:5432/serious_shift
+#   dbmate up                 # apply migrations/
+#   python etl/sqlite_to_postgres.py --sqlite ../../serious-shift.db --truncate
+#   python etl/verify_parity.py --sqlite ../../serious-shift.db
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: serious
+      POSTGRES_PASSWORD: serious
+      POSTGRES_DB: serious_shift
+    ports:
+      - "5432:5432"
+    volumes:
+      - serious_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serious -d serious_shift"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  serious_pgdata:

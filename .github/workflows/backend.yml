@@ -1,0 +1,65 @@
+name: backend
+
+# Compiles the Rust API and smoke-tests it live against Postgres (apply
+# migrations, seed a row, hit the endpoints). This is the verification the
+# local environment can't do (no Rust toolchain here).
+
+on:
+  push:
+    paths: ["apps/backend/**", "packages/db/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["apps/backend/**", "packages/db/**", ".github/workflows/backend.yml"]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: serious
+          POSTGRES_PASSWORD: serious
+          POSTGRES_DB: serious_shift
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U serious -d serious_shift"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://serious:serious@localhost:5432/serious_shift?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy" }
+
+      - name: Apply DB schema + seed
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate \
+            https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          sudo chmod +x /usr/local/bin/dbmate
+          ( cd packages/db && DBMATE_MIGRATIONS_DIR=./migrations dbmate up )
+          psql "$DATABASE_URL" -c "INSERT INTO thinkers (name, credibility_score) VALUES ('Smoke Test', 70);"
+          psql "$DATABASE_URL" -c "INSERT INTO documents (key, body) VALUES ('map', '{\"ok\":true}'::jsonb);"
+
+      - name: Lint
+        run: |
+          cargo fmt --check
+          cargo clippy -- -D warnings
+        working-directory: apps/backend
+
+      - name: Build
+        run: cargo build --release
+        working-directory: apps/backend
+
+      - name: Smoke test endpoints
+        working-directory: apps/backend
+        run: |
+          ./target/release/serious-shift-backend &
+          SERVER=$!
+          for i in $(seq 1 20); do curl -sf localhost:8080/health && break; sleep 1; done
+          set -e
+          curl -sf localhost:8080/api/thinkers | grep -q "Smoke Test"
+          curl -sf localhost:8080/api/stats | grep -q '"thinkers":1'
+          curl -sf localhost:8080/api/map | grep -q '"ok":true'
+          curl -sf localhost:8080/api/claims | grep -q '\[\]'   # empty list, valid
+          kill $SERVER

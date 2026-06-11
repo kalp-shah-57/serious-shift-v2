@@ -1,0 +1,20 @@
+# Per-block ownership. Each block is owned and reviewed independently.
+# Replace the placeholder teams/handles with real GitHub teams.
+
+# Frontend (Next.js + Tailwind, Figma-driven)
+/apps/frontend/            @serious-shift/frontend
+
+# Backend (Rust API)
+/apps/backend/             @serious-shift/backend
+
+# Pipeline (Python ingestion + LLM extraction)
+/apps/pipeline/            @serious-shift/data
+
+# Shared contracts — changes here ripple across blocks, so require broad review
+/packages/db/              @serious-shift/backend @serious-shift/data
+/packages/contracts/       @serious-shift/backend @serious-shift/frontend
+/packages/design-tokens/   @serious-shift/frontend
+
+# Infra / CI
+/infra/                    @serious-shift/platform
+/.github/                  @serious-shift/platform

@@ -1,0 +1,12 @@
+tests
+raw_content
+logs
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+README.md
+CONVERSION.md
+.env
+.env.local

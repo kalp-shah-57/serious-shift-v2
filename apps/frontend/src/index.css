@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #E8503A;
+  --color-accent-light: #F06B58;
+  --color-cream: #F5F0EB;
+  --color-warm-gray: #A8A29E;
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-editorial {
+  font-family: var(--font-serif);
+}
+
+/* Markdown-like prose styling */
+.prose-body p { margin-bottom: 1rem; line-height: 1.75; }
+.prose-body strong { color: var(--color-cream); font-weight: 600; }
+.prose-body em { font-style: italic; color: var(--color-warm-gray); }
+
+/* Status badges */
+.badge-true { background: #166534; color: #bbf7d0; }
+.badge-false { background: #991b1b; color: #fecaca; }
+.badge-partially_true { background: #854d0e; color: #fef08a; }
+.badge-pending { background: #27272a; color: #a1a1aa; }
+.badge-expired { background: #3f3f46; color: #a1a1aa; }
+
+/* ── Light mode theme ────────────────────────────────────────────────────────
+ * Activated by adding the 'light' class to <html>.
+ * Overrides Tailwind v4 CSS custom properties to produce a warm, paper-white
+ * palette inspired by TrendWatching.com.
+ *
+ * Strategy:
+ *   - Neutral-* scale is inverted (950=lightest, 200=darkest).
+ *   - --color-cream flips from off-white heading colour to near-black ink.
+ *   - Colour families (emerald/red/violet/amber/sky) have their -400 (text)
+ *     and -900 (border) positions darkened/lightened for legibility on white.
+ *   - Domain-pill colours (-950 bg, -300 text, -800 border) are swapped to
+ *     light-hue equivalents so pills remain readable and distinct.
+ *   - Map tier colours are darkened via .map-root override.
+ * ──────────────────────────────────────────────────────────────────────────── */
+html.light {
+  /* Neutral palette — semantic inversion */
+  --color-neutral-950: #faf9f6;
+  --color-neutral-900: #f0ede8;
+  --color-neutral-800: #e4e1d6;
+  --color-neutral-700: #ccc8bf;
+  --color-neutral-600: #8a8880;
+  --color-neutral-500: #6b6a5e;
+  --color-neutral-400: #3a382f;
+  --color-neutral-300: #1f1e18;
+  --color-neutral-200: #15140f;
+  --color-neutral-100: #0a0908;
+  --color-neutral-50:  #050504;
+
+  /* Semantic brand tokens */
+  --color-cream:     #15140f; /* was off-white heading; now near-black ink */
+  --color-warm-gray: #6b6a5e; /* darken slightly for legibility */
+
+  /* Relationship type text labels — darken -400 for legibility on white */
+  --color-emerald-400: #15803d;
+  --color-red-400:     #b91c1c;
+  --color-violet-400:  #6d28d9;
+  --color-amber-400:   #b45309;
+  --color-sky-400:     #0369a1;
+
+  /* Relationship type borders — lighten -900 for light bg */
+  --color-emerald-900: #dcfce7;
+  --color-red-900:     #fee2e2;
+  --color-violet-900:  #ede9fe;
+  --color-amber-900:   #fef3c7;
+  --color-sky-900:     #e0f2fe;
+
+  /* Domain pill backgrounds (-950) — swap to very-light hue equivalents */
+  --color-violet-950: #f5f3ff;
+  --color-amber-950:  #fffbeb;
+  --color-sky-950:    #f0f9ff;
+  --color-emerald-950:#f0fdf4;
+
+  /* Domain pill text (-300) — darken for legibility on light pill bg */
+  --color-violet-300: #5b21b6;
+  --color-amber-300:  #92400e;
+  --color-sky-300:    #0c4a6e;
+  --color-emerald-300:#166534;
+
+  /* Domain pill borders (-800) — mid-hue, readable on light pill bg */
+  --color-violet-800: #c4b5fd;
+  --color-amber-800:  #fde68a;
+  --color-sky-800:    #7dd3fc;
+  --color-emerald-800:#6ee7b7;
+}
+
+/* Map tier colours — darken for legibility on the light map root bg */
+html.light .map-root {
+  --map-macro: #6d28d9;  /* violet-700 */
+  --map-key:   #0369a1;  /* sky-700    */
+  /* --map-sub stays as var(--color-accent) — orange-red works on both themes */
+}
+
+/* prose-body overrides for light mode */
+html.light .prose-body strong { color: var(--color-cream); }
+html.light .prose-body em    { color: var(--color-warm-gray); }
+
+/* Logo — the PNG is solid dark artwork on a transparent background.
+ * In dark mode the header is dark, so we invert the logo to white.
+ * In light mode the header is paper-white, so the original dark logo
+ * reads correctly; we drop the invert filter.
+ */
+.ss-logo { filter: invert(1); }
+html.light .ss-logo { filter: none; }
+
+/* Dropdown animation */
+.animate-in {
+  animation: fadeSlideIn 150ms ease-out;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

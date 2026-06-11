@@ -1,0 +1,23 @@
+import { useState, useEffect } from 'react'
+
+const cache = {}
+
+// The backend (apps/backend) serves the same shapes the old static
+// public/data/*.json files held. NEXT_PUBLIC_API_BASE points at it
+// (e.g. http://localhost:8080); empty means same-origin.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
+
+export function useData(file) {
+  const [data, setData] = useState(cache[file] || null)
+  const [loading, setLoading] = useState(!cache[file])
+
+  useEffect(() => {
+    if (cache[file]) return
+    fetch(`${API_BASE}/api/${file.replace(/\.json$/, '')}`)
+      .then(r => r.json())
+      .then(d => { cache[file] = d; setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [file])
+
+  return { data, loading }
+}
