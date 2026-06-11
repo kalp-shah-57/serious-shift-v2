@@ -5,7 +5,11 @@ const cache = {}
 // The backend (apps/backend) serves the same shapes the old static
 // public/data/*.json files held. NEXT_PUBLIC_API_BASE points at it
 // (e.g. http://localhost:8080); empty means same-origin.
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
+// Default to https:// if the value is given without a scheme (a common
+// mistake — a scheme-less URL would otherwise be treated as a relative path),
+// and trim any trailing slash.
+const RAW_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').trim().replace(/\/$/, '')
+const API_BASE = RAW_BASE && !/^https?:\/\//.test(RAW_BASE) ? `https://${RAW_BASE}` : RAW_BASE
 
 export function useData(file) {
   const [data, setData] = useState(cache[file] || null)
