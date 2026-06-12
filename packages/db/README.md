@@ -114,7 +114,7 @@ bookkeeping table and isn't listed.)
    python etl/verify_parity.py     --sqlite ../../serious-shift.db
    ```
 3. Populate `documents` by running the pipeline generators
-   (`python -m serious_shift_pipeline.generate_map_data --export-only` rebuilds
+   (`python -m serious_shift_pipeline.steps.generate_map_data --export-only` rebuilds
    `documents['map']` from existing rows with no API cost; `generate_keynote`
    rebuilds the keynote). Use the same `DATABASE_URL` for the backend and pipeline.
 

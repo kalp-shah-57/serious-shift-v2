@@ -18,10 +18,10 @@ Pipeline
   Phase 9: Export            — write documents['map'] (served by the backend at /api/map)
 
 Usage (DATABASE_URL + ANTHROPIC_API_KEY in env)
-  python -m serious_shift_pipeline.generate_map_data
-  python -m serious_shift_pipeline.generate_map_data --dry-run      # claim counts only, no API
-  python -m serious_shift_pipeline.generate_map_data --phase1       # DB setup only, no API
-  python -m serious_shift_pipeline.generate_map_data --export-only  # re-export from existing data
+  python -m serious_shift_pipeline.steps.generate_map_data
+  python -m serious_shift_pipeline.steps.generate_map_data --dry-run      # claim counts only, no API
+  python -m serious_shift_pipeline.steps.generate_map_data --phase1       # DB setup only, no API
+  python -m serious_shift_pipeline.steps.generate_map_data --export-only  # re-export from existing data
 
 New SQLite tables (additive — existing tables untouched):
   domains_v2                  4 domain rows, hand-coded
@@ -44,7 +44,7 @@ import argparse
 import random
 from datetime import date
 
-from . import db, llm
+from ..core import db, llm
 
 # ── Model assignment ─────────────────────────────────────────
 # Editorial synthesis (scenarios, KTs, sub-trends, attribution) runs on Sonnet 4.6.

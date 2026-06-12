@@ -3,7 +3,8 @@ Drives query_section_evidence with a capturing fake db (exercising the
 hard-exclude + penalty branches) and parses every emitted SQL as Postgres."""
 import sqlglot
 
-from serious_shift_pipeline import db, generate_keynote as gk
+from serious_shift_pipeline.core import db
+from serious_shift_pipeline.steps import generate_keynote as gk
 
 
 class _Capture:

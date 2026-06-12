@@ -1,5 +1,5 @@
 """Unit tests for db helpers that don't need a database."""
-from serious_shift_pipeline.db import normalize_date
+from serious_shift_pipeline.core.db import normalize_date
 
 
 def test_normalize_date():

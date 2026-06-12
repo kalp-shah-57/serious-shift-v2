@@ -11,7 +11,7 @@ Converted from the legacy process_raw.py:
   * Obsidian markdown notes → dropped (the DB is the source of truth)
 
 Usage:
-  DATABASE_URL=... ANTHROPIC_API_KEY=... python -m serious_shift_pipeline.process_raw
+  DATABASE_URL=... ANTHROPIC_API_KEY=... python -m serious_shift_pipeline.steps.process_raw
   ... --thinker "Ethan Mollick" | --file path.txt | --dry-run | --cost-cap 400
 """
 from __future__ import annotations
@@ -24,8 +24,8 @@ import sys
 import time
 from datetime import datetime
 
-from . import db, llm
-from .observability import CostTracker, ErrorLog, TokenLog
+from ..core import db, llm
+from ..core.observability import CostTracker, ErrorLog, TokenLog
 
 RAW_DIR = os.environ.get("RAW_CONTENT_DIR", os.path.join(os.getcwd(), "raw_content"))
 

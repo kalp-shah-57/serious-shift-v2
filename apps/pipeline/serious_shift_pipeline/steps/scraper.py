@@ -32,7 +32,7 @@ import sys
 import time
 from datetime import datetime
 
-from . import db
+from ..core import db
 
 # Source manifest now lives in the DB (scrape_sources); raw_content + logs are cwd-based.
 RAW_DIR     = os.environ.get('RAW_CONTENT_DIR', os.path.join(os.getcwd(), 'raw_content'))

@@ -17,7 +17,7 @@ import argparse
 import json
 import os
 
-from . import db, llm
+from ..core import db, llm
 
 KEYNOTE_MODEL = "claude-sonnet-4-6"
 

@@ -29,7 +29,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-from . import db
+from .core import db
 
 # Logs live under cwd (the repo root the operator runs from), matching the
 # converted step modules (SS_LOGS_DIR).
@@ -349,12 +349,12 @@ def run_regen_steps(
     if dry_run:
         print(f"\n{'─'*60}")
         print("  STEP 3/4 — Rebuild map (Claude API clustering)")
-        print("  [dry-run] would run: -m serious_shift_pipeline.generate_map_data  [gate: new_claims > 0]")
+        print("  [dry-run] would run: -m serious_shift_pipeline.steps.generate_map_data  [gate: new_claims > 0]")
         map_status = REGEN_DRY_RUN
     else:
         rc3 = run_step(
             "STEP 3/4 — Rebuild map (Claude API clustering)",
-            [PYTHON, '-m', f'{MOD}.generate_map_data'],
+            [PYTHON, '-m', f'{MOD}.steps.generate_map_data'],
             dry_run=False,
             env=subprocess_env,
         )
@@ -372,7 +372,7 @@ def run_regen_steps(
     if dry_run:
         print(f"\n{'─'*60}")
         print("  STEP 4/4 — Rebuild keynote (Claude API synthesis)")
-        print("  [dry-run] would run: -m serious_shift_pipeline.generate_keynote"
+        print("  [dry-run] would run: -m serious_shift_pipeline.steps.generate_keynote"
               "  [gate: new_claims > 0 and map succeeded]")
         keynote_status = REGEN_DRY_RUN
     elif map_status == REGEN_FAILED:
@@ -382,7 +382,7 @@ def run_regen_steps(
     else:
         rc4 = run_step(
             "STEP 4/4 — Rebuild keynote (Claude API synthesis)",
-            [PYTHON, '-m', f'{MOD}.generate_keynote'],
+            [PYTHON, '-m', f'{MOD}.steps.generate_keynote'],
             dry_run=False,
             env=subprocess_env,
         )
@@ -451,7 +451,7 @@ def main():
     if not args.skip_scrape:
         run_step(
             "STEP 1/4 — Scrape (append-only, per-source watermark)",
-            [PYTHON, '-m', f'{MOD}.scraper', '--all'],
+            [PYTHON, '-m', f'{MOD}.steps.scraper', '--all'],
             dry_run=args.dry_run,
             env=subprocess_env,
         )
@@ -461,7 +461,7 @@ def main():
     # ── Step 2: Process raw files ───────────────────────────────────
     run_step(
         "STEP 2/4 — Process raw files (Claude API extraction)",
-        [PYTHON, '-m', f'{MOD}.process_raw'],
+        [PYTHON, '-m', f'{MOD}.steps.process_raw'],
         dry_run=args.dry_run,
         env=subprocess_env,
     )
@@ -469,7 +469,7 @@ def main():
     # ── Step 2.5: Score claims (free; so new claims rank correctly) ──
     run_step(
         "STEP 2.5 — Score claims (source_depth, freshness, claim_weight)",
-        [PYTHON, '-m', f'{MOD}.scoring'],
+        [PYTHON, '-m', f'{MOD}.steps.scoring'],
         dry_run=args.dry_run,
         env=subprocess_env,
     )

@@ -52,7 +52,7 @@ DBMATE_MIGRATIONS_DIR=./migrations dbmate up                       # 0001–0003
 python etl/sqlite_to_postgres.py --sqlite ../../serious-shift.db --truncate
 python etl/verify_parity.py     --sqlite ../../serious-shift.db    # "lossless ✓"
 # populate the served documents (no API cost for the map):
-cd ../.. && python -m serious_shift_pipeline.generate_map_data --export-only
+cd ../.. && python -m serious_shift_pipeline.steps.generate_map_data --export-only
 # keynote/daily: run generate_keynote (needs ANTHROPIC_API_KEY) or restore a backup
 ```
 

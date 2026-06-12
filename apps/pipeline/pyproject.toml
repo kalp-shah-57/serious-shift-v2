@@ -2,8 +2,8 @@
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["serious_shift_pipeline"]
+[tool.setuptools.packages.find]
+include = ["serious_shift_pipeline*"]
 
 [project]
 name = "serious-shift-pipeline"
