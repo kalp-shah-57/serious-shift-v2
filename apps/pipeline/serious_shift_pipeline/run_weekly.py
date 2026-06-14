@@ -6,11 +6,14 @@ Sequence (each step is a package module run via `python -m`)
   1. scraper          — fetch new raw content (append-only, per-source watermark)
   2. process_raw      — extract claims via Claude API → Postgres
   2.5 scoring         — source_depth / freshness / claim_weight (free, no API)
-  3. generate_map_data    — rebuild documents['map']     ┐ only runs if process_raw
-  4. generate_keynote     — rebuild documents['keynote'] ┘ added new claims
+  2.6 deduplicate     — mark claims.duplicate_of (free heuristic)
+  2.7 evaluate        — prediction status + thinker credibility_score (free, no API)
+  3. generate_map_data    — rebuild documents['map'] + ['synthesis'] ┐ only runs if
+  4. generate_keynote     — rebuild documents['keynote']             ┘ new claims landed
 
-The gate on steps 3–4 prevents burning the map/keynote regen spend (~$5-15) on a
-week where sources were quiet or broken and nothing new landed in the DB.
+Steps 2.6–2.7 run every cron so credibility scores and duplicate flags stay current
+in the DB. The gate on steps 3–4 prevents burning the map/keynote regen spend
+(~$5-15) on a week where sources were quiet or broken and nothing new landed.
 
 Database migrations (packages/db, dbmate format) are applied automatically at
 the start of each run, so the cron is self-sufficient against a fresh database.
@@ -482,6 +485,26 @@ def main():
     run_step(
         "STEP 2.5 — Score claims (source_depth, freshness, claim_weight)",
         [PYTHON, '-m', f'{MOD}.steps.scoring'],
+        dry_run=args.dry_run,
+        env=subprocess_env,
+    )
+
+    # ── Step 2.6: Deduplicate claims (free heuristic; marks duplicate_of) ──
+    # Runs before the new-claims count so the gate counts net-new *unique* claims,
+    # and before regen so the map/keynote exclude duplicates.
+    run_step(
+        "STEP 2.6 — Deduplicate claims (mark duplicate_of)",
+        [PYTHON, '-m', f'{MOD}.steps.deduplicate', '--execute'],
+        dry_run=args.dry_run,
+        env=subprocess_env,
+    )
+
+    # ── Step 2.7: Evaluate predictions + recompute credibility (free, no API) ──
+    # Updates prediction status/accuracy and thinker credibility_score, which the
+    # map + keynote rank by — so it must run before regen.
+    run_step(
+        "STEP 2.7 — Evaluate predictions + thinker credibility",
+        [PYTHON, '-m', f'{MOD}.steps.evaluate'],
         dry_run=args.dry_run,
         env=subprocess_env,
     )
