@@ -25,15 +25,30 @@ import psycopg
 
 from . import db
 
-# Where to look for *.sql migrations, in priority order. SS_MIGRATIONS_DIR wins;
-# then the copy vendored into this package (ships in the image); then the
-# canonical repo copy (local dev / when run from a source checkout).
-_PKG_MIGRATIONS  = Path(__file__).resolve().parent.parent / "migrations"
-_REPO_MIGRATIONS = Path(__file__).resolve().parents[4] / "packages" / "db" / "migrations"
+# The copy vendored into this package (always present; ships in the image).
+_PKG_MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+
+
+def _repo_migrations() -> Path | None:
+    """Canonical packages/db/migrations, when run from a source checkout.
+
+    Walk up from this file looking for `packages/db/migrations` rather than
+    indexing a fixed parent depth — in the installed/container layout there are
+    fewer parent directories, and a hard index raises IndexError."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "packages" / "db" / "migrations"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+# Migration directory lookup, in priority order. SS_MIGRATIONS_DIR wins; then the
+# vendored package copy (ships in the image); then the canonical repo copy.
+_REPO_MIGRATIONS = _repo_migrations()
 _CANDIDATES = (
     os.environ.get("SS_MIGRATIONS_DIR"),
     str(_PKG_MIGRATIONS),
-    str(_REPO_MIGRATIONS),
+    str(_REPO_MIGRATIONS) if _REPO_MIGRATIONS else None,
 )
 
 

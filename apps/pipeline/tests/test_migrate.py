@@ -27,7 +27,7 @@ def test_vendored_migrations_match_canonical():
     """The package's vendored migrations must stay byte-identical to the
     canonical packages/db/migrations (the dbmate source of truth)."""
     repo = migrate._REPO_MIGRATIONS
-    if not repo.is_dir():
+    if not repo or not repo.is_dir():
         import pytest
         pytest.skip("canonical packages/db/migrations not present (installed/sdist build)")
     pkg = migrate._PKG_MIGRATIONS
