@@ -157,7 +157,9 @@ Extract the following as JSON:
       "consumer_implication": "",
       "signal_strength": "strong_signal/signal/background/noise",
       "specificity": 3,
-      "quote": ""
+      "quote": "",
+      "has_statistic": false,
+      "statistic": ""
     }}
   ],
   "predictions": [
@@ -182,10 +184,21 @@ Extract the following as JSON:
 
 RULES:
 - Extract EVERY distinct claim. One idea per claim. Aim for 10-30 claims.
+- US English spelling throughout (behavior, organization, analyze — not behaviour/organisation/analyse).
+- signal_strength — assign explicitly, do not leave to interpretation:
+  - strong_signal: a clear, distinct, specific claim worth surfacing on its own
+  - signal: meaningful, but not the loudest signal
+  - background: context only, not a signal
+  - noise: discard-level
+- has_statistic: true ONLY when the claim contains a specific, dated, attributable number.
+  When true, put that number and its attribution in "statistic", e.g.
+  "34% of US consumers used an AI tool to shortlist a purchase, Q1 2025 (Webb)".
+  Otherwise has_statistic=false and statistic="".
+- consumer_implication must answer specifically: "how does this affect how people buy, live,
+  work, or expect things?" A vague answer fails the requirement.
 - Only create predictions for specific, falsifiable future statements.
-- Set novelty to "position_shift" if content contradicts existing positions above.
-- Set novelty to "repeating_position" if restating known views.
-- consumer_implication must answer: "how does this affect how people buy, live, work, or expect things?"
+- Set novelty to "position_shift" if content contradicts existing positions above;
+  "repeating_position" if restating known views.
 - Be aggressive with extraction. More is better.
 
 Return ONLY the JSON. No commentary."""
@@ -233,14 +246,16 @@ def write_to_database(conn, thinker, meta, raw_text, extracted):
         domain = cl.get("domain", "technology_capability")
         if domain not in DOMAIN_VALID:
             domain = "technology_capability"
+        has_stat = bool(cl.get("has_statistic", False))
         cid = db.insert_returning_id(conn, """INSERT INTO claims
             (source_id, thinker_id, claim_text, claim_type, domain, consumer_implication,
-             signal_strength, specificity, quote)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+             signal_strength, specificity, quote, has_statistic, statistic)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (source_id, thinker_id, cl["claim_text"], cl.get("claim_type", "analysis"), domain,
              cl.get("consumer_implication", ""),
              cl.get("signal_strength") if cl.get("signal_strength") in {"noise", "background", "signal", "strong_signal"} else "signal",
-             cl.get("specificity", 3), cl.get("quote", "")))
+             cl.get("specificity", 3), cl.get("quote", ""),
+             has_stat, (cl.get("statistic") or "")[:500] if has_stat else None))
         claim_ids.append(cid)
 
     full_text = " ".join(cl["claim_text"] for cl in extracted.get("claims", []))

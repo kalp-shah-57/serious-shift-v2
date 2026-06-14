@@ -91,7 +91,7 @@ DOMAINS = [
             "exclusively human asset. From geopolitical realignment and institutional "
             "legitimacy crises to the redefinition of creativity, consciousness, and community, "
             "AGI × Society is where the deepest and most contested transformation plays out — "
-            "the one brands and organisations are least prepared to address."
+            "the one brands and organizations are least prepared to address."
         ),
         'sort_order': 1,
         # claims.domain values that belong primarily to this strategic domain
@@ -130,14 +130,14 @@ DOMAINS = [
     {
         'id':    'consumers',
         'name':  'Consumers',
-        'label': 'AGI × Consumer Behaviours',
+        'label': 'AGI × Consumer Behavior',
         'short_description': (
             'How AGI transforms the way people make decisions, seek fulfilment, and '
             'relate to brands — human needs, now AI-mediated.'
         ),
         'description': (
             "The consumer isn't disappearing — they're delegating. As AI agents take over "
-            "search, filtering, purchasing, and personalisation at scale, the rules of brand "
+            "search, filtering, purchasing, and personalization at scale, the rules of brand "
             "relationships are being rewritten from scratch. This domain maps the AGI-driven "
             "shifts in how people make decisions, form preferences, and seek fulfilment — "
             "structured through the lens of human needs, because AGI reshapes how those needs "
@@ -155,33 +155,33 @@ DOMAINS = [
     },
     {
         'id':    'organisations',
-        'name':  'Organisations',
-        'label': 'AGI × Organisations',
+        'name':  'Organizations',
+        'label': 'AGI × Organizations',
         'short_description': (
             'How firms and institutions adapt — or fail to — when AI can perform, '
             'plan, and decide faster than any hierarchy was built to handle.'
         ),
         'description': (
-            "Most organisations were designed for a world of scarce intelligence and "
+            "Most organizations were designed for a world of scarce intelligence and "
             "predictable processes. Neither assumption holds. This domain tracks what happens "
             "to firms, institutions, and professional structures when AI can perform, plan, and "
             "decide at speeds no human hierarchy was built to absorb. From workforce redesign "
             "and agentic process automation to the institutional inertia that turns competitive "
-            "advantage into competitive liability, AGI × Organisations is where strategic "
+            "advantage into competitive liability, AGI × Organizations is where strategic "
             "ambition and operational reality collide most visibly. The question is no longer "
-            "whether to reorganise around AI — it's whether organisations can move fast enough "
+            "whether to reorganize around AI, it's whether organizations can move fast enough "
             "to matter."
         ),
         'sort_order': 4,
         'primary_claim_domains': ['enterprise'],
         'secondary_claim_domains': ['regulation', 'education'],
-        'tech_keywords': ['enterpris', 'organis', 'corporat', 'firm', 'workforc', 'employe',
+        'tech_keywords': ['enterpris', 'organiz', 'corporat', 'firm', 'workforc', 'employe',
                           'manag', 'strateg', 'leader', 'institutio', 'business', 'ceo',
                           'exec', 'automat', 'workforce', 'agentic'],
     },
 ]
 
-# Preset domain flows (Reinier's diagram — directional influence arrows)
+# Preset domain flows (directional influence arrows between domains)
 DOMAIN_FLOWS_PRESET = [
     {'source': 'society',       'target': 'economy',       'strength': 'high',   'description': 'Societal legitimacy crises and governance failures shape economic confidence and policy responses.'},
     {'source': 'society',       'target': 'consumers',     'strength': 'high',   'description': 'Cultural shifts in identity, trust, and meaning drive consumer expectations and behavioural norms.'},
@@ -558,14 +558,14 @@ TASK
 Identify 2–4 KEY TRENDS that constitute the evidence base for this scenario. Each Key Trend is a distinct, named signal that together build the case for the scenario above.
 
 RULES FOR KEY TREND NAMES
-- 4–9 words, specific and evocative
-- Reinier Evers style: punchy, slightly contrarian, consumer/brand-facing
-- Begins with or implies an action, shift, or provocation
-- Examples: "Your Customer Is Delegating Decisions to AI", "The Knowledge Economy Is Dying", "Authenticity Becomes a Luxury"
+- 1–2 words. Short, intriguing, memorable. The name creates curiosity; the subtitle delivers the meaning. Alliteration works well but is not required.
+- Right: "Synthetic Trust", "Delegated Desire", "Proof Premium", "Silent Commerce", "Branded Brands"
+- Wrong: "AI Changes Consumer Behavior" (descriptive, not a name), "The Rise of Authenticity" (generic), "Trust Issues" (category label)
 
-RULES FOR SUBTITLES
-- 4–8 words — a sharp framing lens for the KT
-- Examples: "Trust shifts from brands to agents", "Judgment replaces knowledge"
+RULES FOR SUBTITLES (mandatory — the name is never shown without one)
+- One complete, specific sentence. Super descriptive: explain exactly what the trend is. The subtitle carries the meaning the name deliberately withholds; if it is vague, the name has failed.
+- Write it as a journalist writes a subheading, not as a marketer.
+- Right: "When consumers rely on AI recommendations over brand reputation"
 
 RULES FOR CLAIM ASSIGNMENT
 - Assign each claim_id to the single KT it best supports
@@ -610,15 +610,16 @@ TASK
 Identify 3–5 coherent SUB-TRENDS that emerge from the evidence below. Each sub-trend is a distinct, named micro-pattern that a brand strategist or consumer researcher would recognise as real.
 
 RULES FOR SUB-TREND NAMES
-- 4–8 words, specific and evocative (NOT "AI Adoption," "Trust Issues," "Changing Behavior")
-- Reinier Evers style: punchy, slightly contrarian, consumer-facing
-- Each name should be distinctive enough to stand alone on a slide
+- 1–2 words. Short, intriguing, memorable (NOT "AI Adoption", "Trust Issues", "Changing Behavior"). Alliteration welcome, not required.
+
+RULES FOR SUBTITLES (mandatory)
+- One complete, specific sentence that fully explains what the sub-trend is. Journalist subheading, not marketing copy.
 
 RULES FOR DESCRIPTIONS
-- 2 sentences maximum
-- Consumer-facing, forward-looking
-- State what is happening AND what it means for consumers or brands
-- No filler phrases; no em dashes — use periods and commas only
+- Exactly 2 sentences. Strict.
+- Sentence 1: what is happening. Sentence 2: what it means for consumers or brands.
+- Sentence 2 must name the implication, not restate the observation. If sentence 2 could have been sentence 1 reworded, rewrite it.
+- No filler phrases. No em dashes; use periods and commas only.
 
 RULES FOR CLAIM ASSIGNMENT
 - Assign each claim_id to the single sub-trend it best supports
@@ -635,8 +636,9 @@ Return ONLY valid JSON — no preamble, no markdown fences:
   "key_trend_velocity": "accelerating",
   "sub_trends": [
     {{
-      "name": "Sub-trend name here",
-      "description": "One to two sentences. Consumer-facing, punchy.",
+      "name": "1-2 word name",
+      "subtitle": "One specific sentence explaining exactly what this sub-trend is",
+      "description": "Sentence one: what is happening. Sentence two: the implication for consumers or brands.",
       "claim_ids": [123, 456, 789]
     }},
     ...
@@ -663,24 +665,32 @@ Based on the claims below (grouped by thinker), identify:
 - 2–3 PROPONENTS: thinkers whose claims most strongly support or accelerate this {node_type}
 - 2–3 SKEPTICS: thinkers whose claims question, complicate, or push back on it
 
+For each thinker, include one direct quote or close paraphrase from THEIR evidence
+that demonstrates why they are a proponent or skeptic. Without the quote the
+attribution is unverifiable. Cite nothing they did not say.
+
 THINKER CLAIMS:
 {''.join(lines)}
 
 Return ONLY valid JSON:
 {{
-  "proponents": ["Name A", "Name B"],
-  "skeptics": ["Name C", "Name D"]
+  "proponents": [{{"name": "Name A", "quote": "short quote from their evidence"}}],
+  "skeptics":   [{{"name": "Name C", "quote": "short quote from their evidence"}}]
 }}"""
 
 
 def parse_thinker_attribution(raw) -> dict:
+    """Return {'proponents': [{name, quote}], 'skeptics': [...]}. Accepts either the
+    new object form or a bare name list (back-compat)."""
     result = {'proponents': [], 'skeptics': []}
     if not isinstance(raw, dict):
         return result
     for k in ('proponents', 'skeptics'):
-        v = raw.get(k, [])
-        if isinstance(v, list):
-            result[k] = [str(x) for x in v if x]
+        for x in raw.get(k, []) or []:
+            if isinstance(x, dict) and x.get('name'):
+                result[k].append({'name': str(x['name']), 'quote': str(x.get('quote', ''))})
+            elif isinstance(x, str) and x:
+                result[k].append({'name': x, 'quote': ''})
     return result
 
 
@@ -777,9 +787,10 @@ TASK
 Generate 3–4 SYNTHESIS INSIGHTS — emergent ideas arising from combining multiple thinkers' claims. These must NOT be directly stated by any single thinker; they emerge from the pattern of evidence.
 
 RULES
-- Each insight synthesises at least 2 different thinkers' perspectives
-- Name: 4–8 words, evocative, Reinier Evers style
-- Description: 2–3 sentences, forward-looking, {domain_name}-specific
+- Each insight combines at least 2 different thinkers from OPPOSING camps (a proponent and a skeptic), not thinkers who already agree.
+- It must NOT be something any single thinker already wrote. Synthesis test: could this appear in any one thinker's writing? If yes, rewrite it. It should feel surprising but inevitable once read.
+- Name: 4–8 words, surprising but inevitable. Right register: "The Collapse of the Awareness Economy", "When Speed Becomes the New Inequality".
+- Description: 2–3 sentences, forward-looking, {domain_name}-specific, written as if you are the first person to have seen this clearly.
 - contributing_claim_ids: 3–8 claim IDs that together generate the insight
 
 EVIDENCE:
@@ -1048,10 +1059,10 @@ def phase5_sub_trends(conn, api_key: str, domain_claims: dict, domain_scenarios:
                     slug = unique_slug(f'st-{slugify(st["name"])}')
                     st_db_id = conn.execute("""
                         INSERT INTO domain_sub_trends
-                          (slug, kt_id, domain_id, name, description, sort_order)
-                        VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+                          (slug, kt_id, domain_id, name, subtitle, description, sort_order)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
                     """, (slug, kt['_db_id'], d['id'],
-                          st['name'], st['description'], i)).fetchone()['id']
+                          st['name'], st.get('subtitle', ''), st['description'], i)).fetchone()['id']
 
                     for cid in st.get('claim_ids', []):
                         try:
@@ -1300,6 +1311,21 @@ def _classify_horizon(h: str) -> str:
     else:           return '5-10 years'
 
 
+def _attr(stored):
+    """Parse stored proponents/skeptics JSON into (names, detail[{name, quote}]).
+    Accepts the new [{name, quote}] form or a legacy [name] list."""
+    items = json.loads(stored) if stored else []
+    names, detail = [], []
+    for x in items:
+        if isinstance(x, dict):
+            names.append(x.get('name', ''))
+            detail.append({'name': x.get('name', ''), 'quote': x.get('quote', '')})
+        else:
+            names.append(str(x))
+            detail.append({'name': str(x), 'quote': ''})
+    return names, detail
+
+
 def build_map_json_v2(conn) -> dict:
     today = date.today().isoformat()
 
@@ -1346,15 +1372,17 @@ def build_map_json_v2(conn) -> dict:
             'horizon':     scn['horizon'] or '2026–2030',
             'plausibility': scn['plausibility'] or 'medium',
             'key_trend_ids': [f'kt-{r["id"]}' for r in kt_rows],
-            'proponents':  json.loads(scn['proponents']) if scn['proponents'] else [],
-            'skeptics':    json.loads(scn['skeptics'])   if scn['skeptics']   else [],
+            'proponents':  _attr(scn['proponents'])[0],
+            'skeptics':    _attr(scn['skeptics'])[0],
+            'proponents_detail': _attr(scn['proponents'])[1],
+            'skeptics_detail':   _attr(scn['skeptics'])[1],
         })
 
     # ---- key_trends ----
     kt_rows_all = conn.execute("""
         SELECT kt.id, kt.slug, kt.scenario_id, kt.domain_id,
                kt.name, kt.subtitle, kt.velocity, kt.sort_order,
-               kt.proponents, kt.skeptics
+               kt.proponents, kt.skeptics, kt.hero_stat
         FROM domain_key_trends kt
         ORDER BY kt.domain_id, kt.sort_order
     """).fetchall()
@@ -1370,16 +1398,20 @@ def build_map_json_v2(conn) -> dict:
             'scenario_id': f'scn-{kt["scenario_id"]}',
             'domain_id':   kt['domain_id'],
             'name':        kt['name'],
-            'description': kt['subtitle'],
+            'subtitle':    kt['subtitle'],
+            'description': kt['subtitle'],   # back-compat alias
             'velocity':    kt['velocity'] or 'rising',
+            'hero_stat':   kt['hero_stat'],  # {value, year, source} or null (Phase 2 fills/renders)
             'sub_trend_ids': [f'st-{r["id"]}' for r in st_rows],
-            'proponents':  json.loads(kt['proponents']) if kt['proponents'] else [],
-            'skeptics':    json.loads(kt['skeptics'])   if kt['skeptics']   else [],
+            'proponents':  _attr(kt['proponents'])[0],
+            'skeptics':    _attr(kt['skeptics'])[0],
+            'proponents_detail': _attr(kt['proponents'])[1],
+            'skeptics_detail':   _attr(kt['skeptics'])[1],
         })
 
     # ---- sub_trends ----
     st_rows_all = conn.execute("""
-        SELECT st.id, st.slug, st.kt_id, st.domain_id, st.name, st.description
+        SELECT st.id, st.slug, st.kt_id, st.domain_id, st.name, st.subtitle, st.description
         FROM domain_sub_trends st
         ORDER BY st.kt_id, st.sort_order
     """).fetchall()
@@ -1395,6 +1427,7 @@ def build_map_json_v2(conn) -> dict:
             'key_trend_id': f'kt-{st["kt_id"]}',
             'domain_id':   st['domain_id'],
             'name':        st['name'],
+            'subtitle':    st['subtitle'],
             'description': st['description'],
             'claim_ids':   [f'c_{r["claim_id"]}' for r in c_rows],
         })
@@ -1561,6 +1594,20 @@ def _write_map_document(conn, out):
     conn.commit()
 
 
+def _write_synthesis_document(conn, out):
+    """Store synthesis insights (grouped by domain) as documents['synthesis'] —
+    served by the backend at /api/synthesis, rendered as the domain closing section."""
+    doc = {
+        'updated': out.get('updated'),
+        'domains': [{'id': d['id'], 'name': d['name'], 'label': d['label']} for d in out.get('domains', [])],
+        'synthesis_insights': out.get('synthesis_insights', []),
+    }
+    conn.execute("""INSERT INTO documents (key, body) VALUES ('synthesis', %s::jsonb)
+        ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()""",
+        (json.dumps(doc, default=str),))
+    conn.commit()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run',     action='store_true', help='Print claim counts only')
@@ -1575,6 +1622,7 @@ def main():
         print('--export-only: reading existing v2 data…')
         out = build_map_json_v2(conn)
         _write_map_document(conn, out)
+        _write_synthesis_document(conn, out)
         print("✓  map written → documents['map']")
         print(f'   {len(out["domains"])} domains · {len(out["scenarios"])} scenarios · '
               f'{len(out["key_trends"])} KTs · {len(out["sub_trends"])} sub-trends · '
@@ -1639,6 +1687,7 @@ def main():
     print('\nPhase 9 — Exporting map…')
     out = build_map_json_v2(conn)
     _write_map_document(conn, out)
+    _write_synthesis_document(conn, out)
     conn.close()
 
     print("\n✓  map → documents['map']")

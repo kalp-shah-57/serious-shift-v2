@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/stats", get(stats))
         .route("/api/map", get(map))
         .route("/api/keynote", get(keynote))
+        .route("/api/synthesis", get(synthesis))
         .route("/api/daily", get(daily))
         .route("/api/personalize", post(personalize).layer(DefaultBodyLimit::max(64 * 1024)))
         .layer(cors_layer())
@@ -150,6 +151,7 @@ async fn fetch_doc(pool: &PgPool, key: &str) -> Result<Json<Value>, AppError> {
 
 async fn map(State(s): State<AppState>) -> Result<Json<Value>, AppError> { fetch_doc(&s.pool, "map").await }
 async fn keynote(State(s): State<AppState>) -> Result<Json<Value>, AppError> { fetch_doc(&s.pool, "keynote").await }
+async fn synthesis(State(s): State<AppState>) -> Result<Json<Value>, AppError> { fetch_doc(&s.pool, "synthesis").await }
 async fn daily(State(s): State<AppState>) -> Result<Json<Value>, AppError> { fetch_doc(&s.pool, "daily").await }
 
 // ── /api/personalize (faithful port of api/personalize.js) ─────────────────────
