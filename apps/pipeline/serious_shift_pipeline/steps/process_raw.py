@@ -306,6 +306,15 @@ def prepare_file(filepath, conn, error_log=None):
     if len(body) < 100:
         return None
 
+    # Already ingested? Skip BEFORE the (paid) Claude extraction. The scraper's
+    # per-source watermark already limits re-fetches, but raw_content is ephemeral
+    # on cloud hosts, so the DB is the durable "have we seen this URL" record.
+    url = meta.get("url", "")
+    if url and db.query_one(conn, "SELECT 1 AS x FROM sources WHERE url = %s AND url <> ''", (url,)):
+        print(f"    SKIP: already in DB — {os.path.basename(filepath)}")
+        mark_processed(filepath)
+        return None
+
     thinker_name = meta.get("thinker") or os.path.basename(os.path.dirname(filepath)).replace("_", " ")
     thinker = get_thinker(conn, thinker_name)
     if not thinker:
