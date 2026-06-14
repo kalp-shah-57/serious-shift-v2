@@ -29,10 +29,11 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 
-from ..core import db
+from ..core import db, parallel
 
 # Source manifest now lives in the DB (scrape_sources); raw_content + logs are cwd-based.
 RAW_DIR     = os.environ.get('RAW_CONTENT_DIR', os.path.join(os.getcwd(), 'raw_content'))
@@ -302,15 +303,17 @@ class Log:
     def __init__(self):
         self.stats = {'found': 0, 'fetched': 0, 'skipped': 0, 'failed': 0}
         self.entries = []
+        self._lock = threading.Lock()   # log() is called from worker threads
 
     def log(self, action, thinker, platform, title='', url='', error=''):
-        self.entries.append({
-            'action': action,
-            'thinker': thinker,
-            'platform': platform,
-            'title': title[:80],
-        })
-        self.stats[action] = self.stats.get(action, 0) + 1
+        with self._lock:
+            self.entries.append({
+                'action': action,
+                'thinker': thinker,
+                'platform': platform,
+                'title': title[:80],
+            })
+            self.stats[action] = self.stats.get(action, 0) + 1
 
     def save(self):
         with open(LOG_PATH, 'w') as f:
@@ -338,6 +341,7 @@ class ErrorLog:
     def __init__(self, run_id: str):
         self.run_id = run_id
         self._count = 0
+        self._lock = threading.Lock()   # record() is called from worker threads
         os.makedirs(LOGS_DIR, exist_ok=True)
 
     def record(self, *, stage, thinker, exc,
@@ -360,9 +364,11 @@ class ErrorLog:
             'outcome':         outcome,
             **{k: str(v)[:200] for k, v in extra.items()},
         }
-        with open(self.PATH, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry) + '\n')
-        self._count += 1
+        line = json.dumps(entry) + '\n'
+        with self._lock:
+            with open(self.PATH, 'a', encoding='utf-8') as f:
+                f.write(line)
+            self._count += 1
 
     @property
     def count(self) -> int:
@@ -1002,11 +1008,22 @@ def main():
     print(f"Mode: {args.mode} | {mode_label} | until={args.until}")
     print(f"Thinkers: {len(thinkers)}")
 
-    for t in thinkers:
-        scrape_thinker(
-            t, args.mode, global_since, args.until,
-            log, conn, auto_since, error_log,
-        )
+    # Scrape thinkers concurrently — this is network-bound. Each worker gets its
+    # own DB connection (psycopg connections aren't shared across threads); the
+    # shared Log/ErrorLog are lock-guarded. Raw files write to per-source paths.
+    def scrape_one(t):
+        wconn = db.raw_connect()
+        try:
+            scrape_thinker(t, args.mode, global_since, args.until,
+                           log, wconn, auto_since, error_log)
+        except Exception as exc:  # noqa: BLE001 — one thinker failing must not stop the rest
+            error_log.record(stage='scrape', thinker=t.get('name', '?'), exc=exc,
+                             retry_attempted=False, outcome='skipped')
+            print(f"  ✗  {t.get('name', '?')} failed: {type(exc).__name__}: {str(exc)[:100]}")
+        finally:
+            wconn.close()
+
+    parallel.pmap(scrape_one, thinkers)
 
     conn.close()
     log.save()

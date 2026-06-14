@@ -39,12 +39,11 @@ import json
 import os
 import re
 import sys
-import time
 import argparse
 import random
 from datetime import date
 
-from ..core import db, llm
+from ..core import db, llm, parallel
 from ..core.voice import VOICE
 
 # ── Model assignment ─────────────────────────────────────────
@@ -56,20 +55,6 @@ INSIGHTS_MODEL  = 'claude-opus-4-7'
 CLAIMS_PER_DOM  = 200   # claims sent to Key Trend generation per domain
 CLAIMS_PER_KT   = 100   # claims sent to sub-trend generation per KT
 MIN_KTS_PER_DOM = 8     # ask the model for at least this many Key Trends per domain
-
-# ── Pricing constants (USD per million tokens) ───────────────
-# Update these when switching models; the budget guard derives from them.
-SONNET_4_6_INPUT_PRICE_PER_M  = 3.0
-SONNET_4_6_OUTPUT_PRICE_PER_M = 15.0
-OPUS_4_7_INPUT_PRICE_PER_M    = 15.0
-OPUS_4_7_OUTPUT_PRICE_PER_M   = 75.0
-
-# Budget guards
-TOTAL_BUDGET_USD = 30.0
-# Conservative per-call estimate at Sonnet 4.6 rates. Opus 4.7 is 5× the price
-# per token, so the Opus insights phase is charged proportionally more.
-SONNET_COST_PER_CALL = 0.012
-OPUS_COST_PER_CALL   = SONNET_COST_PER_CALL * (OPUS_4_7_INPUT_PRICE_PER_M / SONNET_4_6_INPUT_PRICE_PER_M)
 
 # ---------------------------------------------------------------------------
 # Domain definitions  (Phase 1 — hardcoded, never generated)
@@ -208,6 +193,19 @@ def slugify(text: str) -> str:
     return s.strip('-')
 
 
+def _slugger():
+    """A fresh unique-slug maker: suffixes -2, -3, … on collision within a phase."""
+    used: set = set()
+
+    def make(base: str) -> str:
+        s, n = base, 2
+        while s in used:
+            s = f'{base}-{n}'; n += 1
+        used.add(s)
+        return s
+    return make
+
+
 # ---------------------------------------------------------------------------
 # v2 map tables — schema owned by packages/db migrations. This step only
 # TRUNCATEs them before a rebuild (reset_v2_tables); it never creates them.
@@ -279,19 +277,6 @@ def extract_json(text: str):
                     except json.JSONDecodeError:
                         break
     raise ValueError(f'No JSON found:\n{text[:1500]}')
-
-
-# ---------------------------------------------------------------------------
-# Budget guard
-# ---------------------------------------------------------------------------
-
-def check_budget(api_cost: float, label: str,
-                 per_call: float = SONNET_COST_PER_CALL) -> float:
-    new = api_cost + per_call
-    if new > TOTAL_BUDGET_USD:
-        print(f'\n⚠  Budget guard: ${new:.3f} would exceed ${TOTAL_BUDGET_USD:.2f} at {label}. Halting.')
-        sys.exit(0)
-    return new
 
 
 # ---------------------------------------------------------------------------
@@ -738,55 +723,40 @@ def phase3_key_trends(conn, api_key: str, domain_claims: dict) -> dict:
     Returns {domain_id: [kt_dict_with_db_id, ...]}
     Writes ≥MIN_KTS_PER_DOM Key Trends per domain to domain_key_trends.
     """
-    print('\nPhase 3 — Generating Key Trends per domain (4 calls)…')
-    used_slugs: set = set()
+    print('\nPhase 3 — Generating Key Trends per domain (parallel)…')
 
-    def unique_slug(base):
-        s = base; n = 2
-        while s in used_slugs:
-            s = f'{base}-{n}'; n += 1
-        used_slugs.add(s); return s
-
-    api_cost = 0.0
-    domain_kts: dict = {}
-
-    for d in DOMAINS:
-        claims = domain_claims[d['id']]
-        print(f'  {d["name"]}…', end=' ', flush=True)
-
-        prompt = prompt_domain_key_trends(d, claims)
-        raw    = call_claude(prompt, api_key)
-        api_cost = check_budget(api_cost, f'Phase3 {d["name"]}')
-
+    # Parallel: one independent LLM call per domain.
+    def generate(d):
         try:
-            result = extract_json(raw)
+            return extract_json(call_claude(prompt_domain_key_trends(d, domain_claims[d['id']]), api_key))
         except ValueError as e:
-            print(f'\n  ERROR parsing JSON for {d["name"]}: {e}')
-            result = {'key_trends': []}
+            print(f'  ERROR parsing JSON for {d["name"]}: {e}')
+            return {'key_trends': []}
 
+    results = parallel.pmap(generate, DOMAINS)
+
+    # Serial: assign slugs + write (single connection, deterministic order).
+    slug = _slugger()
+    domain_kts: dict = {}
+    for d, result in zip(DOMAINS, results):
         kts = result.get('key_trends', [])
         if len(kts) < MIN_KTS_PER_DOM:
-            print(f'(only {len(kts)} KTs returned, target {MIN_KTS_PER_DOM}) ', end='')
-
+            print(f'  {d["name"]}: only {len(kts)} KTs (target {MIN_KTS_PER_DOM})')
         written = []
         for j, kt in enumerate(kts, start=1):
-            slug = unique_slug(f'kt-{slugify(kt["name"])}')
             kt['_db_id'] = conn.execute("""
                 INSERT INTO domain_key_trends
                   (slug, domain_id, name, subtitle, velocity, sort_order)
                 VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
-            """, (slug, d['id'],
+            """, (slug(f'kt-{slugify(kt["name"])}'), d['id'],
                   kt['name'], kt.get('subtitle', ''), kt.get('velocity', 'rising'), j)).fetchone()['id']
-            kt['_slug']      = slug
             kt['_claim_ids'] = [int(cid) for cid in kt.get('claim_ids', [])
                                 if isinstance(cid, (int, float))]
             written.append(kt)
-
-        conn.commit()
         domain_kts[d['id']] = written
-        print(f'✓  {len(written)} KTs')
-        time.sleep(1)
+        print(f'  ✓  {d["name"]}: {len(written)} KTs')
 
+    conn.commit()
     return domain_kts
 
 
@@ -796,78 +766,56 @@ def phase3_key_trends(conn, api_key: str, domain_claims: dict) -> dict:
 
 def phase4_sub_trends(conn, api_key: str, domain_claims: dict, domain_kts: dict):
     """Writes to domain_sub_trends + domain_sub_trend_claims."""
-    print('\nPhase 4 — Clustering sub-trends per Key Trend…')
-    used_slugs: set = set()
-    api_cost = 0.0
+    print('\nPhase 4 — Clustering sub-trends per Key Trend (parallel)…')
 
-    def unique_slug(base):
-        s = base; n = 2
-        while s in used_slugs:
-            s = f'{base}-{n}'; n += 1
-        used_slugs.add(s); return s
+    all_domain_claims = {c['id']: c for d in DOMAINS for c in domain_claims[d['id']]}
 
-    # Build a fast claim lookup: id → claim_dict
-    all_domain_claims: dict = {}
+    # Build the per-KT claim pool (pure, no I/O), one work item per KT.
+    work = []  # (domain_id, kt, preferred_claims)
     for d in DOMAINS:
-        for c in domain_claims[d['id']]:
-            all_domain_claims[c['id']] = c
-
-    for d in DOMAINS:
-        full_pool = domain_claims[d['id']]  # fallback pool for this domain
+        full_pool = domain_claims[d['id']]
         for kt in domain_kts.get(d['id'], []):
-            # Build claim pool for this KT:
-            # Prefer the claim_ids Claude assigned, then fill from domain pool
             preferred_ids = set(kt.get('_claim_ids', []))
-            preferred     = [all_domain_claims[cid] for cid in preferred_ids
-                             if cid in all_domain_claims]
-            # Pad with domain pool up to CLAIMS_PER_KT
+            preferred = [all_domain_claims[cid] for cid in preferred_ids if cid in all_domain_claims]
             remaining = CLAIMS_PER_KT - len(preferred)
             if remaining > 0:
-                pad = [c for c in full_pool if c['id'] not in preferred_ids]
-                preferred += pad[:remaining]
+                preferred += [c for c in full_pool if c['id'] not in preferred_ids][:remaining]
+            if preferred:
+                work.append((d['id'], kt, preferred))
 
-            if not preferred:
-                print(f'  SKIP {kt["name"][:40]} — no claims')
-                continue
+    # Parallel: one LLM call per KT.
+    def generate(item):
+        _d_id, kt, preferred = item
+        try:
+            return extract_json(call_claude(prompt_sub_trends(kt['name'], kt.get('subtitle', ''), preferred), api_key))
+        except ValueError as e:
+            print(f'  ERROR ({kt["name"][:30]}): {e}')
+            return {'sub_trends': []}
 
-            print(f'  {kt["name"][:55]}…', end=' ', flush=True)
+    results = parallel.pmap(generate, work)
 
-            prompt = prompt_sub_trends(kt['name'], kt.get('subtitle', ''), preferred)
-            raw    = call_claude(prompt, api_key)
-            api_cost = check_budget(api_cost, f'Phase4 kt:{kt["_db_id"]}')
+    # Serial: write sub-trends + claim links, refine KT velocity.
+    slug = _slugger()
+    for (d_id, kt, _), result in zip(work, results):
+        velocity = result.get('key_trend_velocity', kt.get('velocity', 'rising'))
+        conn.execute('UPDATE domain_key_trends SET velocity=%s WHERE id=%s', (velocity, kt['_db_id']))
+        sub_trends = result.get('sub_trends', [])
+        for i, st in enumerate(sub_trends, start=1):
+            st_db_id = conn.execute("""
+                INSERT INTO domain_sub_trends
+                  (slug, kt_id, domain_id, name, subtitle, description, sort_order)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+            """, (slug(f'st-{slugify(st["name"])}'), kt['_db_id'], d_id,
+                  st['name'], st.get('subtitle', ''), st['description'], i)).fetchone()['id']
+            for cid in st.get('claim_ids', []):
+                try:
+                    conn.execute("""INSERT INTO domain_sub_trend_claims (sub_trend_id, claim_id)
+                                    VALUES (%s,%s) ON CONFLICT DO NOTHING""", (st_db_id, int(cid)))
+                except Exception:
+                    pass
+        print(f'  ✓  {kt["name"][:48]}: {len(sub_trends)} sub-trends, vel={velocity}')
 
-            try:
-                result = extract_json(raw)
-            except ValueError as e:
-                print(f'\n  ERROR: {e}'); result = {'sub_trends': []}
-
-            # The sub-trend prompt can refine the KT's velocity; honour it if present.
-            velocity = result.get('key_trend_velocity', kt.get('velocity', 'rising'))
-            conn.execute('UPDATE domain_key_trends SET velocity=%s WHERE id=%s',
-                         (velocity, kt['_db_id']))
-
-            sub_trends = result.get('sub_trends', [])
-            for i, st in enumerate(sub_trends, start=1):
-                slug = unique_slug(f'st-{slugify(st["name"])}')
-                st_db_id = conn.execute("""
-                    INSERT INTO domain_sub_trends
-                      (slug, kt_id, domain_id, name, subtitle, description, sort_order)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-                """, (slug, kt['_db_id'], d['id'],
-                      st['name'], st.get('subtitle', ''), st['description'], i)).fetchone()['id']
-
-                for cid in st.get('claim_ids', []):
-                    try:
-                        conn.execute("""
-                            INSERT INTO domain_sub_trend_claims
-                              (sub_trend_id, claim_id) VALUES (%s,%s) ON CONFLICT DO NOTHING
-                        """, (st_db_id, int(cid)))
-                    except Exception:
-                        pass
-
-            conn.commit()
-            print(f'✓  {len(sub_trends)} sub-trends, vel={velocity}')
-            time.sleep(0.8)
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -875,32 +823,36 @@ def phase4_sub_trends(conn, api_key: str, domain_claims: dict, domain_kts: dict)
 # ---------------------------------------------------------------------------
 
 def phase5_thinker_attribution(conn, api_key: str, domain_claims: dict, domain_kts: dict):
-    print('\nPhase 5 — Thinker attribution (per Key Trend)…')
-    api_cost = 0.0
+    print('\nPhase 5 — Thinker attribution (parallel)…')
 
+    # Build per-KT thinker groups (pure), one work item per KT.
+    work = []  # (kt, groups)
     for d in DOMAINS:
         claims = domain_claims[d['id']]
         for kt in domain_kts.get(d['id'], []):
-            # Build kt-specific claim pool from preferred ids
             preferred_ids = set(kt.get('_claim_ids', []))
             kt_claims = [c for c in claims if c['id'] in preferred_ids] or claims[:60]
             groups = _collect_by_thinker(kt_claims, max_per=8)
-            if not groups:
-                continue
-            print(f'  kt: {kt["name"][:48]}…', end=' ', flush=True)
-            prompt = prompt_thinker_attribution('key_trend', kt['name'], groups)
-            raw    = call_claude(prompt, api_key)
-            api_cost = check_budget(api_cost, f'Phase5 kt:{kt["_db_id"]}')
-            try:
-                attr = parse_thinker_attribution(extract_json(raw))
-            except Exception:
-                attr = {'proponents': [], 'skeptics': []}
-            conn.execute('UPDATE domain_key_trends SET proponents=%s, skeptics=%s WHERE id=%s',
-                         (json.dumps(attr['proponents']), json.dumps(attr['skeptics']), kt['_db_id']))
-            print(f'✓  {len(attr["proponents"])} pro, {len(attr["skeptics"])} skep')
-            time.sleep(0.5)
+            if groups:
+                work.append((kt, groups))
 
+    # Parallel: one LLM call per KT.
+    def attribute(item):
+        kt, groups = item
+        try:
+            return parse_thinker_attribution(
+                extract_json(call_claude(prompt_thinker_attribution('key_trend', kt['name'], groups), api_key)))
+        except Exception:
+            return {'proponents': [], 'skeptics': []}
+
+    results = parallel.pmap(attribute, work)
+
+    # Serial: write attribution.
+    for (kt, _), attr in zip(work, results):
+        conn.execute('UPDATE domain_key_trends SET proponents=%s, skeptics=%s WHERE id=%s',
+                     (json.dumps(attr['proponents']), json.dumps(attr['skeptics']), kt['_db_id']))
     conn.commit()
+    print(f'  ✓  {len(work)} Key Trends attributed')
 
 
 # ---------------------------------------------------------------------------
@@ -908,13 +860,39 @@ def phase5_thinker_attribution(conn, api_key: str, domain_claims: dict, domain_k
 # ---------------------------------------------------------------------------
 
 def phase6_interrelatedness(conn, api_key: str, domain_kts: dict):
-    print('\nPhase 6 — Interrelatedness (typed edges)…')
-    api_cost = 0.0
-    b_calls  = 0
-    MAX_CALLS = 30
+    print('\nPhase 6 — Interrelatedness (typed edges, parallel)…')
+    MAX_BATCHES = 30
 
-    def _write_links(parsed):
-        for lnk in parsed:
+    # Gather KT nodes, build cross-domain pairs, batch them.
+    kt_nodes = []
+    for d in DOMAINS:
+        for kt in domain_kts.get(d['id'], []):
+            kt_nodes.append({'id': f'kt:{kt["_db_id"]}', 'name': kt['name'],
+                             'desc': kt.get('subtitle', '')[:120], 'domain': d['id']})
+    kt_pairs = [
+        {'id_a': a['id'], 'name_a': a['name'], 'desc_a': a['desc'], 'type_a': 'key_trend',
+         'id_b': b['id'], 'name_b': b['name'], 'desc_b': b['desc'], 'type_b': 'key_trend'}
+        for i, a in enumerate(kt_nodes) for b in kt_nodes[i + 1:]
+        if a['domain'] != b['domain']
+    ]
+    random.shuffle(kt_pairs)
+    kt_pairs = kt_pairs[:200]
+    batches = [kt_pairs[i:i + 25] for i in range(0, len(kt_pairs), 25)][:MAX_BATCHES]
+
+    # Parallel: one LLM call per batch.
+    def run_batch(batch):
+        try:
+            return parse_interrelatedness_batch(extract_json(call_claude(prompt_interrelatedness_batch(batch), api_key)))
+        except Exception as e:
+            print(f'  WARNING: {e}')
+            return []
+
+    results = parallel.pmap(run_batch, batches)
+
+    # Serial: write links.
+    n = 0
+    for links in results:
+        for lnk in links:
             try:
                 conn.execute("""
                     INSERT INTO domain_links
@@ -923,64 +901,11 @@ def phase6_interrelatedness(conn, api_key: str, domain_kts: dict):
                 """, (lnk['source_id'].split(':')[0], lnk['source_id'],
                       lnk['target_id'].split(':')[0], lnk['target_id'],
                       lnk['relationship'], lnk['strength'], lnk['reasoning']))
+                n += 1
             except Exception:
                 pass
-        conn.commit()
-
-    def _run_batch(pairs, label):
-        nonlocal b_calls, api_cost
-        if b_calls >= MAX_CALLS:
-            return []
-        print(f'  {label}: {len(pairs)} pairs…', end=' ', flush=True)
-        prompt = prompt_interrelatedness_batch(pairs)
-        raw    = call_claude(prompt, api_key)
-        api_cost = check_budget(api_cost, label)
-        b_calls += 1
-        try:
-            result = parse_interrelatedness_batch(extract_json(raw))
-        except Exception as e:
-            print(f' WARNING: {e}')
-            result = []
-        print(f'✓  {len(result)} links')
-        time.sleep(0.5)
-        return result
-
-    def _batches(items, size=25):
-        for i in range(0, len(items), size):
-            yield items[i:i+size]
-
-    # Gather all KT nodes
-    kt_nodes = {}
-    for d in DOMAINS:
-        for kt in domain_kts.get(d['id'], []):
-            ref = f'kt:{kt["_db_id"]}'
-            kt_nodes[ref] = {
-                'id': ref, 'name': kt['name'],
-                'desc': kt.get('subtitle','')[:120],
-                'type': 'kt', 'domain': d['id'],
-            }
-
-    # -- KT–KT pairs (cross-domain, capped at 200) --
-    kt_list = list(kt_nodes.values())
-    kt_pairs = []
-    for i, a in enumerate(kt_list):
-        for b in kt_list[i+1:]:
-            # Only cross-domain pairs (within-domain KTs already share domain context)
-            if a['domain'] != b['domain']:
-                kt_pairs.append({
-                    'id_a': a['id'], 'name_a': a['name'], 'desc_a': a['desc'], 'type_a': 'key_trend',
-                    'id_b': b['id'], 'name_b': b['name'], 'desc_b': b['desc'], 'type_b': 'key_trend',
-                })
-
-    random.shuffle(kt_pairs)
-    kt_pairs = kt_pairs[:200]
-    for batch in _batches(kt_pairs, 25):
-        if b_calls >= MAX_CALLS:
-            break
-        links = _run_batch(batch, 'kt-kt')
-        _write_links(links)
-
-    print(f'  Phase 6 complete: {b_calls} calls total.')
+    conn.commit()
+    print(f'  ✓  {len(batches)} batches → {n} links')
 
 
 # ---------------------------------------------------------------------------
@@ -988,54 +913,43 @@ def phase6_interrelatedness(conn, api_key: str, domain_kts: dict):
 # ---------------------------------------------------------------------------
 
 def phase7_synthesis(conn, api_key: str, domain_claims: dict):
-    print('\nPhase 7 — Synthesis insights per domain (4 calls)…')
-    used_slugs: set = set()
-    api_cost = 0.0
+    print('\nPhase 7 — Synthesis insights per domain (parallel)…')
 
-    def unique_slug(base):
-        s = base; n = 2
-        while s in used_slugs:
-            s = f'{base}-{n}'; n += 1
-        used_slugs.add(s); return s
-
-    for d in DOMAINS:
+    # Parallel: one LLM call per domain (Opus).
+    def generate(d):
         claims = domain_claims[d['id']][:50]
         if not claims:
-            continue
-        print(f'  {d["name"]}…', end=' ', flush=True)
-
-        prompt = prompt_synthesis_insights(d['name'], d['description'], claims)
-        raw    = call_claude(prompt, api_key, model=INSIGHTS_MODEL)
-        api_cost = check_budget(api_cost, f'Phase8 {d["id"]}', per_call=OPUS_COST_PER_CALL)
-
+            return d, []
         try:
-            insights = parse_synthesis_insights(extract_json(raw))
+            return d, parse_synthesis_insights(extract_json(
+                call_claude(prompt_synthesis_insights(d['name'], d['description'], claims),
+                            api_key, model=INSIGHTS_MODEL)))
         except Exception as e:
-            print(f' WARNING: {e}'); insights = []
+            print(f'  WARNING ({d["name"]}): {e}')
+            return d, []
 
+    results = parallel.pmap(generate, DOMAINS)
+
+    # Serial: write insights + claim links.
+    slug = _slugger()
+    for d, insights in results:
         n_written = 0
         for ins in insights:
-            slug = unique_slug(f'si-{d["id"]}-{slugify(ins["name"])}')
             row = conn.execute("""
-                INSERT INTO domain_synthesis_insights
-                  (slug, domain_id, name, description)
+                INSERT INTO domain_synthesis_insights (slug, domain_id, name, description)
                 VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING id
-            """, (slug, d['id'], ins['name'], ins['description'])).fetchone()
+            """, (slug(f'si-{d["id"]}-{slugify(ins["name"])}'), d['id'], ins['name'], ins['description'])).fetchone()
             si_id = row['id'] if row else None
             if si_id:
                 for cid in ins['contributing_claim_ids']:
                     try:
-                        conn.execute("""
-                            INSERT INTO domain_synthesis_insight_claims
-                              (insight_id, claim_id) VALUES (%s,%s) ON CONFLICT DO NOTHING
-                        """, (si_id, cid))
+                        conn.execute("""INSERT INTO domain_synthesis_insight_claims (insight_id, claim_id)
+                                        VALUES (%s,%s) ON CONFLICT DO NOTHING""", (si_id, cid))
                     except Exception:
                         pass
                 n_written += 1
-
-        conn.commit()
-        print(f'✓  {n_written} insights')
-        time.sleep(0.5)
+        print(f'  ✓  {d["name"]}: {n_written} insights')
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import argparse
 import json
 import os
 
-from ..core import db, llm
+from ..core import db, llm, parallel
 from ..core.voice import VOICE
 from .generate_map_data import _attr  # parse stored proponents/skeptics → (names, detail)
 
@@ -153,33 +153,35 @@ def main():
     print("KEYNOTE GENERATION — ONE NARRATIVE PER KEY TREND")
     print("=" * 60)
 
-    sections = []
     with db.connect() as conn:
         key_trends = load_key_trends(conn)
         print(f"{len(key_trends)} Key Trends to narrate\n")
 
-        for i, kt in enumerate(key_trends, 1):
-            print(f"Section {i}: {kt['name']} — {kt['subtitle']}  [{kt['domain_name']}]")
-            evidence = kt_evidence(conn, kt["id"])
-            print(f"  Evidence: {len(evidence)} claims "
-                  f"({sum(1 for c in evidence if c['has_statistic'])} with statistics)")
+        # Gather each Key Trend's evidence serially (fast DB reads)…
+        evidence_by_kt = [kt_evidence(conn, kt["id"]) for kt in key_trends]
 
-            if args.dry_run:
+        if args.dry_run:
+            for kt, evidence in zip(key_trends, evidence_by_kt):
+                print(f"{kt['name']} — {kt['subtitle']}  [{kt['domain_name']}]: "
+                      f"{len(evidence)} claims")
                 print(format_evidence(kt, evidence)[:600])
-                continue
+            return
 
-            if use_api:
-                try:
-                    body = generate_section_with_api(kt, evidence)
-                    print(f"  Generated via API ({len(body)} chars)")
-                except Exception as e:  # noqa: BLE001 — degrade to fallback on API failure
-                    print(f"  API failed: {e}. Using fallback.")
-                    body = generate_section_fallback(kt, evidence)
-            else:
-                body = generate_section_fallback(kt, evidence)
-                print(f"  Generated via fallback ({len(body)} chars)")
+        # …then write all the narratives concurrently (the slow API calls).
+        def narrate(pair):
+            kt, evidence = pair
+            if not use_api:
+                return generate_section_fallback(kt, evidence)
+            try:
+                return generate_section_with_api(kt, evidence)
+            except Exception as e:  # noqa: BLE001 — degrade to fallback on API failure
+                print(f"  {kt['name']}: API failed ({e}); using fallback.")
+                return generate_section_fallback(kt, evidence)
 
-            sections.append({
+        bodies = parallel.pmap(narrate, list(zip(key_trends, evidence_by_kt)))
+
+        sections = [
+            {
                 "number": str(i),
                 "title": kt["name"],
                 "subtitle": kt["subtitle"],
@@ -188,14 +190,15 @@ def main():
                 "hero_stat": kt["hero_stat"],
                 "body": body,
                 "claims_used": len(evidence),
-            })
+            }
+            for i, (kt, evidence, body) in enumerate(zip(key_trends, evidence_by_kt, bodies), 1)
+        ]
 
-        if not args.dry_run:
-            output = {"intro": _intro(conn), "sections": sections}
-            db.execute(conn, """INSERT INTO documents (key, body) VALUES ('keynote', %s::jsonb)
-                ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()""",
-                (json.dumps(output, default=str),))  # default=str: any date/datetime → ISO string
-            print(f"\nKeynote written to documents['keynote'] ({len(sections)} sections)")
+        output = {"intro": _intro(conn), "sections": sections}
+        db.execute(conn, """INSERT INTO documents (key, body) VALUES ('keynote', %s::jsonb)
+            ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()""",
+            (json.dumps(output, default=str),))  # default=str: any date/datetime → ISO string
+        print(f"\nKeynote written to documents['keynote'] ({len(sections)} sections)")
 
 
 if __name__ == "__main__":

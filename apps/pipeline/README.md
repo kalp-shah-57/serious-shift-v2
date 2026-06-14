@@ -42,8 +42,14 @@ relevant `steps/` file; shared plumbing lives in `core/`.**
 | `ANTHROPIC_API_KEY` | for extraction/generation | scraper & scoring don't need it |
 | `RAW_CONTENT_DIR` | no | default `./raw_content` |
 | `SS_LOGS_DIR` | no | default `./logs` |
+| `SS_MAX_WORKERS` | no | parallelism for scrape/extract/generate (default `8`). Lower it if you hit API rate limits. |
 
 Run modules from the **repo root** (raw_content + logs are cwd-relative).
+
+The I/O-bound steps run concurrently (scraping per thinker, Claude extraction per
+file, map/keynote generation per domain/Key-Trend) via a bounded thread pool —
+DB writes stay serial. This cuts a full run from hours to a fraction. Tune with
+`SS_MAX_WORKERS`.
 
 ## Source manifest — `scrape_sources` table
 
