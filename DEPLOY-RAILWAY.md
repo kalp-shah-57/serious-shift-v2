@@ -78,18 +78,17 @@ New service → **Deploy from repo**.
 
 ## 5. Pipeline (scheduled refresh)
 New service → **Deploy from repo**.
-- **Root Directory:** repo root (leave blank). The pipeline image is built from the
-  root so it can bundle `packages/db/migrations`; it can't reach them if the root is
-  set to `apps/pipeline`.
-- **Config Path:** `apps/pipeline/railway.json` (sets the Dockerfile + cron schedule).
-- **Watch Paths:** `apps/pipeline/**`, `packages/db/**` (so a migration change rebuilds it).
+- **Root Directory:** `apps/pipeline` (Railway uses the bundled `Dockerfile`).
 - **Cron Schedule:** comes from `railway.json` (`0 22 * * 0`, Sundays 22:00 UTC).
   Railway runs the container on schedule, then the service sleeps.
+- **Watch Paths:** `apps/pipeline/**` (a migration change is vendored into the
+  package, so it lives under this path too).
 - **Variables:** `DATABASE_URL = ${{Postgres.DATABASE_URL}}`, `ANTHROPIC_API_KEY`.
-- On startup the run **applies any pending migrations** to `DATABASE_URL`, then
-  scrapes → processes → (gated) regenerates. Pass `--skip-migrate` only if you
-  manage the schema externally. A full refresh spends ~$60–100 of Anthropic credits;
-  the run is cost-guarded and gates the expensive map/keynote steps on new claims.
+- On startup the run **applies any pending migrations** to `DATABASE_URL` (the
+  migrations are bundled in the image), then scrapes → processes → (gated)
+  regenerates. Pass `--skip-migrate` only if you manage the schema externally.
+  A full refresh spends ~$60–100 of Anthropic credits; the run is cost-guarded
+  and gates the expensive map/keynote steps on new claims.
 
 ## 6. Verify
 - `https://<backend-domain>/health` → `ok`; `/api/stats` → JSON counts.

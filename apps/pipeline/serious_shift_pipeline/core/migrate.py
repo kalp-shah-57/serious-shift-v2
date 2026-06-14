@@ -1,12 +1,14 @@
 """
 Apply pending database migrations at pipeline startup.
 
-The schema is owned by `packages/db` (dbmate). In a container the migrations
-directory is bundled into the image at `/app/migrations`; for local runs it is
-read from `packages/db/migrations` in the repo. This applier is **dbmate
-compatible** — it uses the same `schema_migrations` table and the same version
-scheme (the leading digits of the filename) — so a manual `dbmate up` and this
-runner can be used interchangeably and idempotently against the same database.
+The schema is owned by `packages/db` (dbmate). A copy of the migrations is
+vendored into this package (`serious_shift_pipeline/migrations/*.sql`) so they
+ship inside the image without needing a repo-root Docker build context; a test
+(`tests/test_migrate.py`) asserts the vendored copy stays byte-identical to
+`packages/db/migrations`. This applier is **dbmate compatible** — it uses the
+same `schema_migrations` table and the same version scheme (the leading digits
+of the filename) — so a manual `dbmate up` and this runner can be used
+interchangeably and idempotently against the same database.
 
 Why the pipeline applies migrations: the weekly cron is the system's primary
 writer and runs unattended. Without this, a database that never had `dbmate up`
@@ -24,11 +26,13 @@ import psycopg
 from . import db
 
 # Where to look for *.sql migrations, in priority order. SS_MIGRATIONS_DIR wins;
-# then the in-image bundle (/app/migrations); then the repo checkout (local dev).
+# then the copy vendored into this package (ships in the image); then the
+# canonical repo copy (local dev / when run from a source checkout).
+_PKG_MIGRATIONS  = Path(__file__).resolve().parent.parent / "migrations"
 _REPO_MIGRATIONS = Path(__file__).resolve().parents[4] / "packages" / "db" / "migrations"
 _CANDIDATES = (
     os.environ.get("SS_MIGRATIONS_DIR"),
-    "/app/migrations",
+    str(_PKG_MIGRATIONS),
     str(_REPO_MIGRATIONS),
 )
 
