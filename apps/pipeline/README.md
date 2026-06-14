@@ -14,6 +14,7 @@ serious_shift_pipeline/
     db.py            Postgres access (connect / query / execute / normalize_date)
     llm.py           Anthropic client + robust JSON parsing
     config.py        model id + pricing (env-overridable)
+    voice.py         the tone of voice — edit here to change how ALL content reads
     observability.py cost tracking + JSONL logs
   steps/          the pipeline, in flow order — edit a step here
     scraper.py          fetch sources → raw_content/*.txt (per-source watermark)

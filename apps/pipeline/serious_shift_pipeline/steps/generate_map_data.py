@@ -45,6 +45,7 @@ import random
 from datetime import date
 
 from ..core import db, llm
+from ..core.voice import VOICE
 
 # ── Model assignment ─────────────────────────────────────────
 # Editorial synthesis (scenarios, KTs, sub-trends, attribution) runs on Sonnet 4.6.
@@ -499,7 +500,9 @@ def fmt_claims_block(claims: list, max_per: int = None) -> str:
 
 def prompt_domain_scenarios(domain: dict, claims: list) -> str:
     cb = fmt_claims_block(claims, max_per=180)
-    return f"""You are synthesising trend intelligence for Serious Shift — a consumer trend platform tracking AGI-driven shifts.
+    return f"""{VOICE}
+
+You are synthesising trend intelligence for Serious Shift — a consumer trend platform tracking AGI-driven shifts.
 
 STRATEGIC DOMAIN: {domain['name']}
 DOMAIN DESCRIPTION: {domain['description'][:400]}
@@ -543,7 +546,9 @@ Return ONLY valid JSON — no preamble, no markdown fences:
 
 def prompt_scenario_key_trends(domain: dict, scenario: dict, claims: list) -> str:
     cb = fmt_claims_block(claims, max_per=120)
-    return f"""You are synthesising trend intelligence for Serious Shift — a consumer trend platform.
+    return f"""{VOICE}
+
+You are synthesising trend intelligence for Serious Shift — a consumer trend platform.
 
 DOMAIN: {domain['name']}
 SCENARIO: {scenario['name']}
@@ -594,7 +599,9 @@ Return ONLY valid JSON — no preamble, no markdown fences:
 
 def prompt_sub_trends(kt_name: str, kt_subtitle: str, claims: list) -> str:
     cb = fmt_claims_block(claims, max_per=90)
-    return f"""You are synthesising trend intelligence for Serious Shift — a consumer trend platform tracking AGI-driven shifts.
+    return f"""{VOICE}
+
+You are synthesising trend intelligence for Serious Shift — a consumer trend platform tracking AGI-driven shifts.
 
 KEY TREND: {kt_name}
 FRAMING: {kt_subtitle}
@@ -759,7 +766,9 @@ def parse_interrelatedness_batch(raw) -> list:
 
 def prompt_synthesis_insights(domain_name: str, domain_desc: str, claims: list) -> str:
     cb = fmt_claims_block(claims, max_per=50)
-    return f"""You are the synthesis intelligence layer of Serious Shift.
+    return f"""{VOICE}
+
+You are the synthesis intelligence layer of Serious Shift.
 
 DOMAIN: {domain_name}
 DESCRIPTION: {domain_desc[:300]}

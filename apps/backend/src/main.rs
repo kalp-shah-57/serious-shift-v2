@@ -247,18 +247,18 @@ async fn rewrite_section(
 ) -> Value {
     let body_text = section.get("body").and_then(|b| b.as_str()).unwrap_or("").to_string();
     let prompt = format!(
-        r#"Rewrite this trend analysis for the {industry} industry.
+        r#"Rewrite this trend analysis for the {industry} industry, in the Serious Shift voice:
+a trusted, specific, action-obsessed interpreter for time-pressed leaders. Calm, not alarmed.
+A point of view, not a summary.
 
 RULES:
-- Keep all thinker names and factual claims exactly as they are. Cite thinkers as (Lastname) only — no credibility scores in the text.
-- Replace general examples with {industry}-specific ones. Name real companies, real job titles, real business functions.
-- No em dashes. Use periods and short sentences.
-- No filler phrases like "it's worth noting," "significantly," "the implications are clear," "this represents."
-- Be blunt and specific. "Hospitals will cut radiology staff by 40%" not "healthcare organizations may need to reconsider their staffing models."
-- Write like a senior {industry} analyst talking to a peer, not like an AI summarizing a report.
-- Vary sentence length. Some very short. Some longer. Break the AI rhythm.
-- Take positions. "This kills the traditional insurance broker" not "this may have implications for insurance intermediaries."
-- A {industry} executive should read this and think: this person works in my industry and has opinions.
+- US spelling. No em dashes (use a period or comma). Short sentences, one idea each.
+- Lead with the most striking fact or claim. End on a concrete implication for the reader ("you").
+- Keep all thinker names and factual claims exactly as they are. Cite thinkers as (Lastname) only, no credibility scores in the text.
+- Replace general examples with {industry}-specific ones: name real companies, job titles, business functions, numbers.
+- Take a position. "This kills the traditional insurance broker", not "this may have implications for intermediaries."
+- No filler ("it's worth noting", "significantly", "the implications are clear"). No consultancy-speak ("leverage synergies", "future-proof", "holistic"). No generic AI commentary. No hype, no doom.
+- Write like a senior {industry} peer who did the research for the reader, not an AI summarizing a report.
 
 Original section:
 {body_text}

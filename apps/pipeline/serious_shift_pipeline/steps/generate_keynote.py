@@ -18,6 +18,7 @@ import json
 import os
 
 from ..core import db, llm
+from ..core.voice import VOICE
 
 KEYNOTE_MODEL = "claude-sonnet-4-6"
 
@@ -179,7 +180,9 @@ def format_evidence(evidence):
 
 
 def generate_section_with_api(cfg, evidence):
-    prompt = f"""Write one section of the Serious Shift keynote about consumer trends driven by AGI.
+    prompt = f"""{VOICE}
+
+Write one section of the Serious Shift keynote about consumer trends driven by AGI, in the voice above.
 
 SECTION: {cfg['title']}
 SUBTITLE: {cfg['subtitle']}
@@ -187,16 +190,11 @@ SUBTITLE: {cfg['subtitle']}
 EVIDENCE FROM DATABASE:
 {format_evidence(evidence)}
 
-STRICT RULES:
-- 200-300 words MAXIMUM. Not 400. Not 500. Short, punchy, scannable.
-- 3-5 short paragraphs. No paragraph longer than 4 sentences.
-- Lead with the most striking fact or number from the evidence.
-- Cite thinkers in parentheses with last name only: (Mollick), (Altman). NO scores. NO numbers after names.
-- No em dashes. Use periods. Use commas. No em dashes anywhere.
-- No filler: no "it's worth noting," "significantly," "the implications are clear." Just say it.
-- End the section body with one actionable sentence for the reader.
+FORMAT
+- 200-300 words MAXIMUM. 3-5 short paragraphs, none longer than 4 sentences.
 - Every fact MUST come from the evidence above. Do not invent anything.
-- After the body, add this EXACT line on its own paragraph:
+- After the body, add this EXACT line on its own paragraph (this trailing line is
+  the one place you include scores; in-body citations stay last-name-only):
   Key thinkers: [list every thinker you cited, each with their credibility score from the evidence, separated by middots]
   Example: Key thinkers: Ethan Mollick (53.9) · Sam Altman (52.8) · Demis Hassabis (53.2)
 
