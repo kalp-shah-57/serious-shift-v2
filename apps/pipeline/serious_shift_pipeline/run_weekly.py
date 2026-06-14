@@ -12,8 +12,9 @@ Sequence (each step is a package module run via `python -m`)
 The gate on steps 3–4 prevents burning the map/keynote regen spend (~$5-15) on a
 week where sources were quiet or broken and nothing new landed in the DB.
 
-DB migrations (packages/db via dbmate) and config validation are applied by
-deploy/CI before this runs.
+Database migrations (packages/db, dbmate format) are applied automatically at
+the start of each run, so the cron is self-sufficient against a fresh database.
+Pass --skip-migrate if you manage the schema externally.
 
 Usage (run from the repo root; DATABASE_URL + ANTHROPIC_API_KEY in env)
   python -m serious_shift_pipeline.run_weekly
@@ -413,12 +414,26 @@ def main():
                         help='Print what would run without making any changes')
     parser.add_argument('--no-notify',   action='store_true',
                         help='Suppress desktop notifications (useful for manual runs)')
+    parser.add_argument('--skip-migrate', action='store_true',
+                        help='Skip the startup migration step (schema managed externally)')
     args = parser.parse_args()
 
     api_key = get_api_key()
     if not args.dry_run and not api_key:
         print("ERROR: ANTHROPIC_API_KEY not set. Set env var or add to .env.local.")
         sys.exit(1)
+
+    # Ensure the schema exists before any query. The weekly cron runs unattended
+    # against the shared Postgres; bootstrapping here means a database that never
+    # had `dbmate up` run against it still works (idempotent, dbmate-compatible).
+    if not args.skip_migrate:
+        from .core import migrate
+        print("\n  Applying database migrations…")
+        try:
+            migrate.apply_pending()
+        except Exception as e:  # noqa: BLE001 — surface a clear, actionable failure
+            print(f"ERROR: could not apply database migrations to DATABASE_URL: {e}")
+            sys.exit(1)
 
     # Pass the key explicitly to subprocesses so they don't need to re-read .env.local
     subprocess_env = {**os.environ, 'ANTHROPIC_API_KEY': api_key} if api_key else None
@@ -443,9 +458,6 @@ def main():
     if args.dry_run:
         print("  [DRY-RUN MODE]")
     print(f"{'='*60}")
-
-    # DB migrations (packages/db via dbmate) and config validation are applied
-    # by deploy/CI before this runs, so the orchestrator starts at the scrape step.
 
     # ── Step 1: Scrape ──────────────────────────────────────────────
     if not args.skip_scrape:

@@ -32,8 +32,10 @@ Also set each service's **Watch Paths** (e.g. `apps/backend/**`) so one app's ch
 doesn't rebuild the others. **Postgres is added separately** (a Railway database,
 not from GitHub) and referenced as `${{Postgres.DATABASE_URL}}`.
 
-> Auto-deploy builds and runs the code but does **not** run migrations or load
-> data — that's the one-time step 2 below, run against the Railway DB.
+> The **pipeline cron applies the database migrations automatically** on each run
+> (idempotent, dbmate-compatible), so a fresh database is bootstrapped on the first
+> run. Step 2 below is still the fastest way to stand the DB up immediately and to
+> load the one-time historical data; the backend needs the schema present to serve.
 
 ## 0. Prerequisites
 - A Railway account + the repo pushed to GitHub.
@@ -48,7 +50,7 @@ Grab the Postgres **public** connection string from the Postgres service → Con
 ```bash
 export DATABASE_URL='postgres://…railway public url…'   # includes sslmode=require
 cd packages/db
-DBMATE_MIGRATIONS_DIR=./migrations dbmate up                       # 0001–0003
+DBMATE_MIGRATIONS_DIR=./migrations dbmate up                       # all migrations (0001–)
 python etl/sqlite_to_postgres.py --sqlite ../../serious-shift.db --truncate
 python etl/verify_parity.py     --sqlite ../../serious-shift.db    # "lossless ✓"
 # populate the served documents (no API cost for the map):
@@ -76,15 +78,18 @@ New service → **Deploy from repo**.
 
 ## 5. Pipeline (scheduled refresh)
 New service → **Deploy from repo**.
-- **Root Directory:** `apps/pipeline`.
-- **Start Command:** `python -m serious_shift_pipeline.run_weekly`
-- **Cron Schedule:** e.g. `0 22 * * 0` (Sundays 22:00 UTC). Railway runs the
-  command on schedule, then the service sleeps.
+- **Root Directory:** repo root (leave blank). The pipeline image is built from the
+  root so it can bundle `packages/db/migrations`; it can't reach them if the root is
+  set to `apps/pipeline`.
+- **Config Path:** `apps/pipeline/railway.json` (sets the Dockerfile + cron schedule).
+- **Watch Paths:** `apps/pipeline/**`, `packages/db/**` (so a migration change rebuilds it).
+- **Cron Schedule:** comes from `railway.json` (`0 22 * * 0`, Sundays 22:00 UTC).
+  Railway runs the container on schedule, then the service sleeps.
 - **Variables:** `DATABASE_URL = ${{Postgres.DATABASE_URL}}`, `ANTHROPIC_API_KEY`.
-- A full refresh spends ~$60–100 of Anthropic credits; the run is cost-guarded and
-  gates the expensive map/keynote steps on new claims. (If Nixpacks doesn't install
-  the package cleanly from `pyproject.toml`, add an `apps/pipeline/Dockerfile` like
-  the backend's; `pip install -e .` then the start command.)
+- On startup the run **applies any pending migrations** to `DATABASE_URL`, then
+  scrapes → processes → (gated) regenerates. Pass `--skip-migrate` only if you
+  manage the schema externally. A full refresh spends ~$60–100 of Anthropic credits;
+  the run is cost-guarded and gates the expensive map/keynote steps on new claims.
 
 ## 6. Verify
 - `https://<backend-domain>/health` → `ok`; `/api/stats` → JSON counts.

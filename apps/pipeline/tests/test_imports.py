@@ -8,6 +8,7 @@ def test_all_modules_import():
     import serious_shift_pipeline.core.config  # noqa: F401
     import serious_shift_pipeline.core.db  # noqa: F401
     import serious_shift_pipeline.core.llm  # noqa: F401
+    import serious_shift_pipeline.core.migrate  # noqa: F401
     import serious_shift_pipeline.core.observability  # noqa: F401
     import serious_shift_pipeline.core.voice  # noqa: F401
     # steps
