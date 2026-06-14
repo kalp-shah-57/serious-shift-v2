@@ -38,11 +38,27 @@ def test_get_dsn_accepts_railway_alternatives(monkeypatch):
     assert db.get_dsn() == "postgres://private/db"
 
 
-def test_get_dsn_error_lists_present_db_vars(monkeypatch):
+def test_get_dsn_flags_present_but_empty(monkeypatch):
+    # The real Railway failure: the var exists but its reference resolved to empty.
     _clear_dsn_env(monkeypatch)
-    monkeypatch.setenv("PGHOST", "shouldnotleakvalue")
+    monkeypatch.setenv("DATABASE_URL", "")
     with pytest.raises(RuntimeError) as exc:
         db.get_dsn()
     msg = str(exc.value)
-    assert "PGHOST" in msg                 # names are surfaced for diagnosis
-    assert "shouldnotleakvalue" not in msg  # values are never printed
+    assert "EMPTY" in msg
+    assert "Postgres" in msg  # points at the likely service-name cause
+
+
+def test_get_dsn_flags_unresolved_reference(monkeypatch):
+    _clear_dsn_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "${{Postgres.DATABASE_URL}}")
+    with pytest.raises(RuntimeError) as exc:
+        db.get_dsn()
+    assert "unresolved reference" in str(exc.value)
+
+
+def test_get_dsn_ignores_empty_and_uses_next(monkeypatch):
+    _clear_dsn_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "   ")  # blank/whitespace
+    monkeypatch.setenv("DATABASE_PRIVATE_URL", "postgres://private/db")
+    assert db.get_dsn() == "postgres://private/db"
