@@ -45,17 +45,25 @@ not from GitHub) and referenced as `${{Postgres.DATABASE_URL}}`.
 New Project → **Add Postgres**. Railway creates it and exposes `DATABASE_URL`
 (reference it from other services as `${{Postgres.DATABASE_URL}}`).
 
-## 2. Schema + data (one-time, from your machine)
+## 2. Schema + seed (one-time, from your machine — optional)
+The pipeline cron applies migrations automatically, so this is only needed if you
+want the schema up *before* the first cron run (e.g. so the backend serves data).
 Grab the Postgres **public** connection string from the Postgres service → Connect.
 ```bash
 export DATABASE_URL='postgres://…railway public url…'   # includes sslmode=require
 cd packages/db
-DBMATE_MIGRATIONS_DIR=./migrations dbmate up                       # all migrations (0001–)
+DBMATE_MIGRATIONS_DIR=./migrations dbmate up
+# → 0001 creates the schema, 0002 seeds the thinker roster + scrape source manifest.
+```
+That's the whole bootstrap — no data import required. The pipeline then scrapes →
+extracts claims → builds the map/keynote on its first run.
+
+**Optional — import legacy SQLite data** (historical claims/predictions) instead of
+scraping from scratch:
+```bash
 python etl/sqlite_to_postgres.py --sqlite ../../serious-shift.db --truncate
-python etl/verify_parity.py     --sqlite ../../serious-shift.db    # "lossless ✓"
-# populate the served documents (no API cost for the map):
+# (copies only tables/columns that still exist in the current schema)
 cd ../.. && python -m serious_shift_pipeline.steps.generate_map_data --export-only
-# keynote/daily: run generate_keynote (needs ANTHROPIC_API_KEY) or restore a backup
 ```
 
 ## 3. Backend service

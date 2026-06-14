@@ -209,86 +209,9 @@ def slugify(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DDL — new v2 tables (additive; existing tables untouched)
+# v2 map tables — schema owned by packages/db migrations. This step only
+# TRUNCATEs them before a rebuild (reset_v2_tables); it never creates them.
 # ---------------------------------------------------------------------------
-
-DDL_V2 = """
-CREATE TABLE IF NOT EXISTS domains_v2 (
-    id                TEXT PRIMARY KEY,
-    name              TEXT NOT NULL,
-    label             TEXT NOT NULL,
-    short_description TEXT NOT NULL,
-    description       TEXT NOT NULL,
-    sort_order        INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS domain_key_trends (
-    id           INTEGER PRIMARY KEY,
-    slug         TEXT UNIQUE NOT NULL,
-    domain_id    TEXT NOT NULL REFERENCES domains_v2(id),
-    name         TEXT NOT NULL,
-    subtitle     TEXT NOT NULL,
-    velocity     TEXT,
-    hero_stat    JSONB,
-    sort_order   INTEGER NOT NULL,
-    proponents   TEXT,
-    skeptics     TEXT,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS domain_sub_trends (
-    id           INTEGER PRIMARY KEY,
-    slug         TEXT UNIQUE NOT NULL,
-    kt_id        INTEGER NOT NULL REFERENCES domain_key_trends(id),
-    domain_id    TEXT NOT NULL REFERENCES domains_v2(id),
-    name         TEXT NOT NULL,
-    description  TEXT NOT NULL,
-    sort_order   INTEGER NOT NULL,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS domain_sub_trend_claims (
-    sub_trend_id INTEGER REFERENCES domain_sub_trends(id),
-    claim_id     INTEGER REFERENCES claims(id),
-    PRIMARY KEY (sub_trend_id, claim_id)
-);
-
-CREATE TABLE IF NOT EXISTS domain_synthesis_insights (
-    id           INTEGER PRIMARY KEY,
-    slug         TEXT UNIQUE NOT NULL,
-    domain_id    TEXT NOT NULL REFERENCES domains_v2(id),
-    name         TEXT NOT NULL,
-    description  TEXT NOT NULL,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS domain_synthesis_insight_claims (
-    insight_id   INTEGER REFERENCES domain_synthesis_insights(id),
-    claim_id     INTEGER REFERENCES claims(id),
-    PRIMARY KEY (insight_id, claim_id)
-);
-
-CREATE TABLE IF NOT EXISTS domain_links (
-    id           INTEGER PRIMARY KEY,
-    source_type  TEXT NOT NULL,
-    source_id    TEXT NOT NULL,
-    target_type  TEXT NOT NULL,
-    target_id    TEXT NOT NULL,
-    relationship TEXT NOT NULL,
-    strength     REAL NOT NULL,
-    reasoning    TEXT,
-    UNIQUE(source_type, source_id, target_type, target_id)
-);
-
-CREATE TABLE IF NOT EXISTS domain_flows (
-    id          INTEGER PRIMARY KEY,
-    source_id   TEXT NOT NULL REFERENCES domains_v2(id),
-    target_id   TEXT NOT NULL REFERENCES domains_v2(id),
-    strength    TEXT NOT NULL,
-    description TEXT,
-    UNIQUE(source_id, target_id)
-);
-"""
 
 DROP_V2_ORDER = [
     'domain_synthesis_insight_claims',

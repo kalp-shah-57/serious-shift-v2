@@ -29,6 +29,9 @@ import sys
 
 import psycopg
 
+# Optional one-off import of legacy SQLite data into the current schema. Only the
+# tables that still exist in Postgres are copied (copy_table skips the rest), and
+# only the columns both sides share — so this stays valid as the schema evolves.
 # FK-safe load order: every table appears after all tables it references.
 LOAD_ORDER = [
     "thinkers",
@@ -37,27 +40,11 @@ LOAD_ORDER = [
     "predictions",
     "concepts",
     "tensions",
-    "tags",
     "claim_concepts",
-    "claim_tensions",
     "concept_thinkers",
-    "tension_thinkers",
     "thinker_disagreements",
-    "source_tags",
-    "claim_tags",
-    "keynote_sections",
-    "section_claims",
     "source_state",
-    "sub_trends",
-    "sub_trend_claims",
-    "macro_scenarios",
-    "macro_key_links",
-    "key_trend_meta",
-    "synthesis_insights",
-    "synthesis_insight_claims",
-    "scenario_links",
     "domains_v2",
-    "domain_scenarios",
     "domain_key_trends",
     "domain_sub_trends",
     "domain_sub_trend_claims",
