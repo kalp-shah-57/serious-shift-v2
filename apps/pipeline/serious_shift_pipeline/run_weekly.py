@@ -432,7 +432,7 @@ def main():
         try:
             migrate.apply_pending()
         except Exception as e:  # noqa: BLE001 — surface a clear, actionable failure
-            print(f"ERROR: could not apply database migrations to DATABASE_URL: {e}")
+            print(f"ERROR: could not apply database migrations: {e}")
             sys.exit(1)
 
     # Pass the key explicitly to subprocesses so they don't need to re-read .env.local

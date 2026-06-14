@@ -49,14 +49,39 @@ def normalize_date(value):
     return None
 
 
+# Connection-string env vars we accept, in priority order. Railway's Postgres
+# plugin exposes DATABASE_URL on the database service, but other services see it
+# only if referenced (`${{Postgres.DATABASE_URL}}`); the private/public/`POSTGRES_*`
+# variants are common alternatives, so we accept any of them.
+_DSN_ENV_VARS = (
+    "DATABASE_URL",
+    "DATABASE_PRIVATE_URL",
+    "DATABASE_PUBLIC_URL",
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+)
+
+
 def get_dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Start local Postgres with "
-            "`cd packages/db && docker compose up -d` and export DATABASE_URL."
-        )
-    return dsn
+    for name in _DSN_ENV_VARS:
+        dsn = os.environ.get(name)
+        if dsn:
+            return dsn
+    # List the DB-ish env var NAMES present (never values) so a misnamed or
+    # wrong-service variable is obvious from the logs.
+    present = sorted(
+        k for k in os.environ
+        if any(tok in k.upper() for tok in ("DATABASE", "POSTGRES", "PG"))
+    )
+    raise RuntimeError(
+        "No database connection string found in the environment (looked for "
+        f"{', '.join(_DSN_ENV_VARS)}). "
+        "On Railway: set this on THIS service — e.g. DATABASE_URL = "
+        "${{Postgres.DATABASE_URL}} (the source service must be named 'Postgres') "
+        "— then redeploy so the running deployment picks it up. "
+        f"DB-related env vars currently visible: {present or 'none'}. "
+        "Locally: `cd packages/db && docker compose up -d` and export DATABASE_URL."
+    )
 
 
 def raw_connect():
