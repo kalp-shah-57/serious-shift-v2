@@ -2,10 +2,11 @@
  * DomainDetail — /map/:domainSlug (also matches the legacy
  * /map/domains/:domainId for back-compat).
  *
- * Renders the scenarios for a domain as warpable cards. Clicking a card
- * fires the cinematic warp transition and navigates to the scenario page
- * (/map/:domainSlug/:scenarioSlug) — siblings fade out, the selected card
- * scales toward the camera, then the route changes mid-transition.
+ * Renders the key trends for a domain as warpable cards. Clicking a card
+ * fires the cinematic warp transition and navigates to the key-trend page
+ * (/map/:domainSlug/:ktSlug) — siblings fade out, the selected card scales
+ * toward the camera, then the route changes mid-transition. Below the cards,
+ * the domain's AI-synthesised patterns close the page.
  *
  * Arriving via warp from MapLanding shows the destination radial-gradient
  * overlay; content fades up underneath after the overlay clears.
@@ -17,10 +18,10 @@ import { useMapLookup } from './MapDataContext'
 import {
   useWarpEntry, useWarpExit,
   WarpResolutionOverlay, WarpAtmosphere, WarpableCard,
-  HIDDEN_UP, HIDDEN_DOWN, VISIBLE, PAGE_EXIT,
+  HIDDEN_UP, VISIBLE, PAGE_EXIT,
   entranceTiming,
 } from './warp'
-import { paletteFor, HORIZON_LABELS, pad } from './palette'
+import { paletteFor, VELOCITY_LABEL, pad } from './palette'
 import { STAGGER_CARD, EASE_GENTLE } from './motion'
 
 export default function DomainDetail() {
@@ -28,14 +29,16 @@ export default function DomainDetail() {
   const params = useParams()
   const domainId = params.domainSlug || params.domainId
   const {
-    isV2, domainMap, scenariosByDomain,
-    ktsByScenarioId, subTrendsByKtId,
-    scenarioSlug,
+    isV2, domainMap, ktsByDomain, ktsByDomainId,
+    subTrendsByKtId, insightsByDomain, ktSlug,
   } = useMapLookup()
 
-  const domain    = domainMap[domainId]
-  const palette   = paletteFor(domainId)
-  const scenarios = scenariosByDomain[domainId] || []
+  const domain   = domainMap[domainId]
+  const palette  = paletteFor(domainId)
+  // Prefer the domain's explicit ordered key_trend_ids; fall back to the
+  // domain_id-keyed grouping if that list is absent.
+  const kts = (ktsByDomainId[domainId]?.length ? ktsByDomainId[domainId] : ktsByDomain[domainId]) || []
+  const insights = insightsByDomain[domainId] || []
 
   const isWarpEntry = useWarpEntry(domainId)
   const { phase, selectedKey, launch } = useWarpExit()
@@ -60,7 +63,7 @@ export default function DomainDetail() {
           AI × {domainId || 'domain'}
         </p>
         <h1 className="font-editorial text-3xl text-cream mb-4">
-          Scenarios generating…
+          Key Trends generating…
         </h1>
         <p className="text-neutral-400 text-sm leading-relaxed mb-8">
           The domain-first generator hasn't run yet.
@@ -75,12 +78,7 @@ export default function DomainDetail() {
     )
   }
 
-  const totalKts = scenarios.reduce((n, s) => n + (ktsByScenarioId[s.id] || []).length, 0)
-  const totalSubs = scenarios.reduce(
-    (n, s) => n + (ktsByScenarioId[s.id] || [])
-      .reduce((m, kt) => m + (subTrendsByKtId[kt.id] || []).length, 0),
-    0
-  )
+  const totalSubs = kts.reduce((n, kt) => n + (subTrendsByKtId[kt.id] || []).length, 0)
   const settleStagger = STAGGER_CARD + 0.04
 
   return (
@@ -142,30 +140,28 @@ export default function DomainDetail() {
             transition={{ duration: t.dur, ease: t.ease, delay: t.base + 0.26 }}
             className="flex flex-wrap items-center gap-x-5 gap-y-1.5"
           >
-            <MetaStat value={pad(scenarios.length, 2)} label="Scenarios" />
-            <Sep />
-            <MetaStat value={pad(totalKts, 2)} label="Key Trends" />
+            <MetaStat value={pad(kts.length, 2)} label="Key Trends" />
             <Sep />
             <MetaStat value={pad(totalSubs, 2)} label="Sub-Trends" />
           </motion.div>
         </div>
 
-        {/* ── Scenario cards — warp-into-page on click ── */}
-        {scenarios.length === 0 ? (
+        {/* ── Key Trend cards — warp-into-page on click ── */}
+        {kts.length === 0 ? (
           <div className="py-16 text-center">
             <p className="font-mono text-[9px] uppercase tracking-widest text-neutral-600 mb-2">
-              No scenarios yet
+              No key trends yet
             </p>
           </div>
         ) : (
           <WarpAtmosphere phase={phase}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
-              {scenarios.map((scn, i) => {
-                const kts   = ktsByScenarioId[scn.id] || []
-                const sSlug = scenarioSlug(scn)
+              {kts.map((kt, i) => {
+                const subs  = subTrendsByKtId[kt.id] || []
+                const kSlug = ktSlug(kt)
                 return (
                   <motion.div
-                    key={scn.id}
+                    key={kt.id}
                     initial={HIDDEN_UP}
                     animate={mounted ? VISIBLE : undefined}
                     transition={{
@@ -174,13 +170,13 @@ export default function DomainDetail() {
                       delay: t.base + 0.34 + i * settleStagger,
                     }}
                   >
-                    <ScenarioWarpCard
-                      scenario={scn}
-                      ktCount={kts.length}
+                    <KtWarpCard
+                      kt={kt}
+                      subCount={subs.length}
                       palette={palette}
                       phase={phase}
-                      isSelected={selectedKey === sSlug}
-                      onLaunch={() => launch(sSlug, `/map/${domainId}/${sSlug}`)}
+                      isSelected={selectedKey === kSlug}
+                      onLaunch={() => launch(kSlug, `/map/${domainId}/${kSlug}`)}
                     />
                   </motion.div>
                 )
@@ -188,20 +184,63 @@ export default function DomainDetail() {
             </div>
           </WarpAtmosphere>
         )}
+
+        {/* ── AI-synthesised patterns — domain closing section ── */}
+        {insights.length > 0 && (
+          <motion.section
+            initial={HIDDEN_UP}
+            animate={mounted ? VISIBLE : undefined}
+            transition={{ duration: t.dur, ease: t.ease, delay: t.base + 0.5 }}
+            className="mt-16 sm:mt-20"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-px flex-1 bg-neutral-800/80" />
+              <span
+                className="font-mono text-[9px] uppercase tracking-widest shrink-0 px-1"
+                style={{ color: palette.color }}
+              >
+                AI-Synthesised Patterns · {pad(insights.length, 2)}
+              </span>
+              <div className="h-px flex-1 bg-neutral-800/80" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {insights.map(ins => (
+                <article
+                  key={ins.id}
+                  className="border rounded-lg p-5 sm:p-6"
+                  style={{ borderColor: 'var(--map-border)', background: 'var(--map-surface-strong)' }}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <h3 className="font-editorial text-lg leading-snug text-cream">{ins.name}</h3>
+                    <span className="font-mono text-[8px] uppercase tracking-widest border border-violet-900/60 text-violet-500 rounded px-1.5 py-0.5 shrink-0">
+                      AI
+                    </span>
+                  </div>
+                  <p className="text-sm text-neutral-400 leading-relaxed">{ins.description}</p>
+                  {ins.contributing_claim_ids?.length > 0 && (
+                    <p className="font-mono text-[9px] uppercase tracking-widest text-neutral-600 mt-3 pt-3 border-t border-neutral-800/60">
+                      {ins.contributing_claim_ids.length} supporting claim{ins.contributing_claim_ids.length !== 1 ? 's' : ''}
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
+          </motion.section>
+        )}
       </div>
     </div>
   )
 }
 
-// ── ScenarioWarpCard — replaces the inline-expanding ScenarioCard ──────────
-function ScenarioWarpCard({ scenario, ktCount, palette, phase, isSelected, onLaunch }) {
+// ── KtWarpCard — a key trend rendered as a warpable card ───────────────────
+function KtWarpCard({ kt, subCount, palette, phase, isSelected, onLaunch }) {
   const [hovered, setHovered] = useState(false)
-  const horizonLabel = HORIZON_LABELS[scenario.horizon] || scenario.horizon || ''
+  const velocityLabel = VELOCITY_LABEL[kt.velocity] || kt.velocity || ''
   const active = hovered || isSelected
 
   return (
     <WarpableCard
-      cardKey={scenario.id}
+      cardKey={kt.id}
       phase={phase}
       isSelected={isSelected}
       onClick={onLaunch}
@@ -232,38 +271,35 @@ function ScenarioWarpCard({ scenario, ktCount, palette, phase, isSelected, onLau
 
         <div className="pl-6 pr-5 pt-5 pb-5">
           <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              {horizonLabel && (
-                <span
-                  className="font-mono text-[8px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
-                  style={{
-                    color: palette.color,
-                    borderColor: `color-mix(in oklab, ${palette.color} 25%, transparent)`,
-                  }}
-                >
-                  {horizonLabel}
-                </span>
-              )}
-              {scenario.plausibility && (
-                <span className="font-mono text-[8px] uppercase tracking-widest text-neutral-600">
-                  {scenario.plausibility}
-                </span>
-              )}
-            </div>
-            <span className="text-neutral-600 text-[9px] select-none" aria-hidden="true">→</span>
+            <span className="font-mono text-[8px] uppercase tracking-widest" style={{ color: palette.color }}>
+              Key Trend
+            </span>
+            {velocityLabel && (
+              <span
+                className="font-mono text-[8px] uppercase tracking-widest px-1.5 py-0.5 rounded border"
+                style={{
+                  color: palette.color,
+                  borderColor: `color-mix(in oklab, ${palette.color} 25%, transparent)`,
+                }}
+              >
+                {velocityLabel}
+              </span>
+            )}
           </div>
 
           <h2 className="font-editorial text-xl sm:text-2xl leading-tight text-cream mb-2 group-hover:text-white transition-colors">
-            {scenario.name}
+            {kt.name}
           </h2>
 
-          <p className="text-sm text-neutral-400 leading-relaxed line-clamp-3">
-            {scenario.description}
-          </p>
+          {kt.subtitle && (
+            <p className="text-sm text-neutral-400 leading-relaxed line-clamp-3">
+              {kt.subtitle}
+            </p>
+          )}
 
           <div className="mt-4 pt-3 border-t border-neutral-800/60 flex items-center justify-between">
             <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-500">
-              {pad(ktCount, 2)} key trends
+              {pad(subCount, 2)} sub-trends
             </span>
             <span
               className="font-mono text-[9px] uppercase tracking-widest"

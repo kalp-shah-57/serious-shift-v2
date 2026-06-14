@@ -1,5 +1,5 @@
 /**
- * SubTrendDetail — /map/:domainSlug/:scenarioSlug/:ktSlug/:subTrendSlug
+ * SubTrendDetail — /map/:domainSlug/:ktSlug/:subTrendSlug
  *
  * The leaf of the hierarchy. This is the reading layer — minimal motion,
  * calm and fixed. Claims are listed inline with full thinker attribution,
@@ -27,16 +27,15 @@ const SIGNAL_LABEL = {
 }
 
 export default function SubTrendDetail() {
-  const { domainSlug, scenarioSlug, ktSlug, subTrendSlug } = useParams()
+  const { domainSlug, ktSlug, subTrendSlug } = useParams()
   const {
     isV2, domainMap, thinkerByName,
-    scenarioBySlug, ktBySlug, subTrendBySlug, claimsForSubTrend,
+    ktBySlug, subTrendBySlug, claimsForSubTrend,
   } = useMapLookup()
 
   const domain   = domainMap[domainSlug]
-  const scenario = scenarioBySlug(domainSlug, scenarioSlug)
-  const kt       = ktBySlug(domainSlug, scenarioSlug, ktSlug)
-  const sub      = subTrendBySlug(domainSlug, scenarioSlug, ktSlug, subTrendSlug)
+  const kt       = ktBySlug(domainSlug, ktSlug)
+  const sub      = subTrendBySlug(domainSlug, ktSlug, subTrendSlug)
   const palette  = paletteFor(domainSlug)
 
   const isWarpEntry = useWarpEntry(subTrendSlug)
@@ -46,10 +45,10 @@ export default function SubTrendDetail() {
 
   const t = entranceTiming(isWarpEntry)
 
-  if (!isV2 || !domain || !scenario || !kt || !sub) {
+  if (!isV2 || !domain || !kt || !sub) {
     return (
       <NotFound
-        to={`/map/${domainSlug}/${scenarioSlug}/${ktSlug || ''}`}
+        to={`/map/${domainSlug}/${ktSlug || ''}`}
         label="sub-trend"
       />
     )
@@ -71,9 +70,8 @@ export default function SubTrendDetail() {
       <StickyBreadcrumb
         crumbs={[
           { label: 'Home', to: '/map' },
-          { label: domain.name,   to: `/map/${domainSlug}` },
-          { label: scenario.name, to: `/map/${domainSlug}/${scenarioSlug}` },
-          { label: kt.name,       to: `/map/${domainSlug}/${scenarioSlug}/${ktSlug}` },
+          { label: domain.name, to: `/map/${domainSlug}` },
+          { label: kt.name,     to: `/map/${domainSlug}/${ktSlug}` },
           { label: sub.name },
         ]}
       />

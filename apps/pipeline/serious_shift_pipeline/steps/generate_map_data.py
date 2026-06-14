@@ -2,19 +2,20 @@
 """
 generate_map_data — domain-first rebuild of the Serious Shift trend map (Postgres).
 
-New architecture:
-  4 DOMAINS  →  3-4 SCENARIOS per domain  →  2-4 KEY TRENDS per scenario
-              →  3-5 SUB-TRENDS per KT    →  CLAIMS
+Architecture (Content Logic, June 2026 — scenario layer removed):
+  4 DOMAINS  →  ≥8 KEY TRENDS per domain  →  3-5 SUB-TRENDS per KT  →  CLAIMS
+
+Key Trends attach directly to a domain; there is no intermediate scenario layer.
 
 Pipeline
   Phase 1: Domain definitions — hardcoded, inserts into domains_v2 table (no API)
   Phase 2: Claim routing     — SQL heuristic maps claims.domain → strategic domain (no API)
-  Phase 3: Scenario gen      — 4 API calls (one per domain)
-  Phase 4: KT gen            — N calls (one per scenario), fresh KTs from domain claims
-  Phase 5: Sub-trend gen     — M calls (one per KT), same structure as v1
-  Phase 6: Thinker attrib    — 1 per scenario + 1 per KT
-  Phase 7: Interrelatedness  — typed edges (domain↔domain, scenario↔scenario, KT↔KT, ST↔ST)
-  Phase 8: Synthesis insights — 4 calls (one per domain)
+  Phase 3: KT gen            — 4 calls (one per domain), ≥8 fresh KTs from the domain pool
+  Phase 4: Sub-trend gen     — M calls (one per KT)
+  Phase 5: Thinker attrib    — 1 per KT
+  Phase 6: Interrelatedness  — typed edges (KT↔KT, cross-domain)
+  Phase 7: Synthesis insights — 4 calls (one per domain)
+  Phase 8: Hero-stat select  — per KT, the single strongest dated statistic (SQL, no API)
   Phase 9: Export            — write documents['map'] (served by the backend at /api/map)
 
 Usage (DATABASE_URL + ANTHROPIC_API_KEY in env)
@@ -23,10 +24,9 @@ Usage (DATABASE_URL + ANTHROPIC_API_KEY in env)
   python -m serious_shift_pipeline.steps.generate_map_data --phase1       # DB setup only, no API
   python -m serious_shift_pipeline.steps.generate_map_data --export-only  # re-export from existing data
 
-New SQLite tables (additive — existing tables untouched):
+v2 tables (schema owned by packages/db migrations):
   domains_v2                  4 domain rows, hand-coded
-  domain_scenarios            3-4 per domain, AI-generated
-  domain_key_trends           2-4 per scenario, AI-generated (replaces hardcoded SECTION_CONFIG)
+  domain_key_trends           ≥8 per domain, AI-generated (replaces hardcoded SECTION_CONFIG)
   domain_sub_trends           3-5 per KT, AI-generated
   domain_sub_trend_claims     junction
   domain_synthesis_insights   3-5 per domain, AI-generated
@@ -48,14 +48,14 @@ from ..core import db, llm
 from ..core.voice import VOICE
 
 # ── Model assignment ─────────────────────────────────────────
-# Editorial synthesis (scenarios, KTs, sub-trends, attribution) runs on Sonnet 4.6.
+# Editorial synthesis (Key Trends, sub-trends, attribution) runs on Sonnet 4.6.
 SYNTHESIS_MODEL = 'claude-sonnet-4-6'
 # Synthesis insights — the most editorially demanding, lowest-volume phase — runs on Opus 4.7.
 INSIGHTS_MODEL  = 'claude-opus-4-7'
 
-CLAIMS_PER_DOM  = 200   # claims sent to scenario generation per domain
-CLAIMS_PER_SCN  = 150   # claims sent to KT generation per scenario
+CLAIMS_PER_DOM  = 200   # claims sent to Key Trend generation per domain
 CLAIMS_PER_KT   = 100   # claims sent to sub-trend generation per KT
+MIN_KTS_PER_DOM = 8     # ask the model for at least this many Key Trends per domain
 
 # ── Pricing constants (USD per million tokens) ───────────────
 # Update these when switching models; the budget guard derives from them.
@@ -222,28 +222,14 @@ CREATE TABLE IF NOT EXISTS domains_v2 (
     sort_order        INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS domain_scenarios (
-    id           INTEGER PRIMARY KEY,
-    slug         TEXT UNIQUE NOT NULL,
-    domain_id    TEXT NOT NULL REFERENCES domains_v2(id),
-    name         TEXT NOT NULL,
-    description  TEXT NOT NULL,
-    horizon      TEXT,
-    plausibility TEXT,
-    sort_order   INTEGER NOT NULL,
-    proponents   TEXT,
-    skeptics     TEXT,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS domain_key_trends (
     id           INTEGER PRIMARY KEY,
     slug         TEXT UNIQUE NOT NULL,
-    scenario_id  INTEGER NOT NULL REFERENCES domain_scenarios(id),
     domain_id    TEXT NOT NULL REFERENCES domains_v2(id),
     name         TEXT NOT NULL,
     subtitle     TEXT NOT NULL,
     velocity     TEXT,
+    hero_stat    JSONB,
     sort_order   INTEGER NOT NULL,
     proponents   TEXT,
     skeptics     TEXT,
@@ -311,7 +297,6 @@ DROP_V2_ORDER = [
     'domain_sub_trend_claims',
     'domain_sub_trends',
     'domain_key_trends',
-    'domain_scenarios',
     'domain_flows',
     'domains_v2',
 ]
@@ -496,9 +481,9 @@ def fmt_claims_block(claims: list, max_per: int = None) -> str:
     return '\n'.join(lines)
 
 
-# ── Phase 3: scenario generation per domain ────────────────────────────────
+# ── Phase 3: Key Trend generation per domain ───────────────────────────────
 
-def prompt_domain_scenarios(domain: dict, claims: list) -> str:
+def prompt_domain_key_trends(domain: dict, claims: list) -> str:
     cb = fmt_claims_block(claims, max_per=180)
     return f"""{VOICE}
 
@@ -508,59 +493,13 @@ STRATEGIC DOMAIN: {domain['name']}
 DOMAIN DESCRIPTION: {domain['description'][:400]}
 
 TASK
-From the evidence below, identify 3–4 distinct SCENARIOS for this domain. Each scenario is a coherent narrative frame — a plausible future state specific to {domain['name']} driven by AGI.
-
-RULES FOR SCENARIO NAMES
-- 3–6 words, evocative and memorable
-- Frame a shift, not a category (NOT "Technology Changes" or "AI Impact")
-- Examples of right register: "The Trust Stack", "Machines Do the Deciding", "After the Knowledge Economy"
-- Each scenario must be distinct from the others — no overlapping narratives
-
-RULES FOR DESCRIPTIONS
-- 2–3 sentences, big-picture frame
-- What is changing, for whom, and why it matters now
-- {domain['name']}-specific framing — NOT generic AI commentary
-
-RULES FOR HORIZON + PLAUSIBILITY
-- horizon: year range e.g. "2026–2029", "2026–2032"
-- plausibility: "high" | "medium" | "speculative"
-
-EVIDENCE ({len(claims)} claims from the {domain['name']} domain):
-{cb}
-
-Return ONLY valid JSON — no preamble, no markdown fences:
-{{
-  "scenarios": [
-    {{
-      "name": "Scenario name here",
-      "description": "Two to three sentences. Domain-specific, forward-looking.",
-      "horizon": "2026–2029",
-      "plausibility": "high"
-    }},
-    ...
-  ]
-}}"""
-
-
-# ── Phase 4: KT generation per scenario ────────────────────────────────────
-
-def prompt_scenario_key_trends(domain: dict, scenario: dict, claims: list) -> str:
-    cb = fmt_claims_block(claims, max_per=120)
-    return f"""{VOICE}
-
-You are synthesising trend intelligence for Serious Shift — a consumer trend platform.
-
-DOMAIN: {domain['name']}
-SCENARIO: {scenario['name']}
-SCENARIO DESCRIPTION: {scenario['description']}
-
-TASK
-Identify 2–4 KEY TRENDS that constitute the evidence base for this scenario. Each Key Trend is a distinct, named signal that together build the case for the scenario above.
+From the evidence below, identify at least {MIN_KTS_PER_DOM} distinct KEY TRENDS for this domain. Each Key Trend is a named signal — a shift already underway in {domain['name']}, grounded in the claims. Together they map the most important things happening in this domain. Prefer more trends over fewer: surface every distinct shift the evidence supports, but never invent one the claims do not back.
 
 RULES FOR KEY TREND NAMES
 - 1–2 words. Short, intriguing, memorable. The name creates curiosity; the subtitle delivers the meaning. Alliteration works well but is not required.
 - Right: "Synthetic Trust", "Delegated Desire", "Proof Premium", "Silent Commerce", "Branded Brands"
 - Wrong: "AI Changes Consumer Behavior" (descriptive, not a name), "The Rise of Authenticity" (generic), "Trust Issues" (category label)
+- Every Key Trend must be distinct from the others — no overlapping trends.
 
 RULES FOR SUBTITLES (mandatory — the name is never shown without one)
 - One complete, specific sentence. Super descriptive: explain exactly what the trend is. The subtitle carries the meaning the name deliberately withholds; if it is vague, the name has failed.
@@ -568,26 +507,26 @@ RULES FOR SUBTITLES (mandatory — the name is never shown without one)
 - Right: "When consumers rely on AI recommendations over brand reputation"
 
 RULES FOR CLAIM ASSIGNMENT
-- Assign each claim_id to the single KT it best supports
-- Every claim that clearly fits a KT should be assigned
+- Assign each claim_id to the single Key Trend it best supports
+- Every claim that clearly fits a Key Trend should be assigned
 - Claims that don't fit cleanly may be omitted
 
-Also assign a velocity to the SCENARIO itself:
+Assign a velocity to each Key Trend:
 - "breakout" = explosive growth, tipping point imminent
 - "accelerating" = clear momentum, adoption growing fast
 - "rising" = real signal, still building
 - "steady" = established, not accelerating
 
-EVIDENCE ({len(claims)} claims):
+EVIDENCE ({len(claims)} claims from the {domain['name']} domain):
 {cb}
 
 Return ONLY valid JSON — no preamble, no markdown fences:
 {{
-  "scenario_velocity": "accelerating",
   "key_trends": [
     {{
       "name": "Key trend name here",
-      "subtitle": "Sharp framing in 4-8 words",
+      "subtitle": "One specific sentence explaining exactly what this trend is",
+      "velocity": "accelerating",
       "claim_ids": [123, 456, 789]
     }},
     ...
@@ -856,7 +795,7 @@ def phase1_domain_definitions(conn):
 # ---------------------------------------------------------------------------
 
 def phase2_claim_routing(conn) -> dict:
-    """Returns {domain_id: [claim_dict, ...]} for scenario generation."""
+    """Returns {domain_id: [claim_dict, ...]} for Key Trend generation."""
     print('\nPhase 2 — Routing claims to domains (SQL heuristic, no API)…')
     domain_claims = {}
     for d in DOMAINS:
@@ -868,15 +807,15 @@ def phase2_claim_routing(conn) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — Scenario generation (4 API calls)
+# Phase 3 — Key Trend generation per domain (4 API calls)
 # ---------------------------------------------------------------------------
 
-def phase3_scenarios(conn, api_key: str, domain_claims: dict) -> dict:
+def phase3_key_trends(conn, api_key: str, domain_claims: dict) -> dict:
     """
-    Returns {domain_id: [scenario_dict_with_db_id, ...]}
-    Writes to domain_scenarios table.
+    Returns {domain_id: [kt_dict_with_db_id, ...]}
+    Writes ≥MIN_KTS_PER_DOM Key Trends per domain to domain_key_trends.
     """
-    print('\nPhase 3 — Generating scenarios per domain (4 calls)…')
+    print('\nPhase 3 — Generating Key Trends per domain (4 calls)…')
     used_slugs: set = set()
 
     def unique_slug(base):
@@ -885,14 +824,14 @@ def phase3_scenarios(conn, api_key: str, domain_claims: dict) -> dict:
             s = f'{base}-{n}'; n += 1
         used_slugs.add(s); return s
 
-    domain_scenarios = {}
     api_cost = 0.0
+    domain_kts: dict = {}
 
     for d in DOMAINS:
         claims = domain_claims[d['id']]
-        print(f'  Generating scenarios for {d["name"]}…', end=' ', flush=True)
+        print(f'  {d["name"]}…', end=' ', flush=True)
 
-        prompt = prompt_domain_scenarios(d, claims)
+        prompt = prompt_domain_key_trends(d, claims)
         raw    = call_claude(prompt, api_key)
         api_cost = check_budget(api_cost, f'Phase3 {d["name"]}')
 
@@ -900,108 +839,41 @@ def phase3_scenarios(conn, api_key: str, domain_claims: dict) -> dict:
             result = extract_json(raw)
         except ValueError as e:
             print(f'\n  ERROR parsing JSON for {d["name"]}: {e}')
-            result = {'scenarios': []}
+            result = {'key_trends': []}
 
-        scenarios = result.get('scenarios', [])
-        if not scenarios:
-            print(f'WARNING: no scenarios returned for {d["name"]}')
-            scenarios = []
+        kts = result.get('key_trends', [])
+        if len(kts) < MIN_KTS_PER_DOM:
+            print(f'(only {len(kts)} KTs returned, target {MIN_KTS_PER_DOM}) ', end='')
 
         written = []
-        for i, scn in enumerate(scenarios, start=1):
-            slug = unique_slug(f'scn-{d["id"]}-{slugify(scn["name"])}')
-            scn['_db_id'] = conn.execute("""
-                INSERT INTO domain_scenarios
-                  (slug, domain_id, name, description, horizon, plausibility, sort_order)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-            """, (slug, d['id'], scn['name'], scn['description'],
-                  scn.get('horizon','2026–2030'), scn.get('plausibility','medium'), i)).fetchone()['id']
-            scn['_slug']  = slug
-            written.append(scn)
+        for j, kt in enumerate(kts, start=1):
+            slug = unique_slug(f'kt-{slugify(kt["name"])}')
+            kt['_db_id'] = conn.execute("""
+                INSERT INTO domain_key_trends
+                  (slug, domain_id, name, subtitle, velocity, sort_order)
+                VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+            """, (slug, d['id'],
+                  kt['name'], kt.get('subtitle', ''), kt.get('velocity', 'rising'), j)).fetchone()['id']
+            kt['_slug']      = slug
+            kt['_claim_ids'] = [int(cid) for cid in kt.get('claim_ids', [])
+                                if isinstance(cid, (int, float))]
+            written.append(kt)
 
         conn.commit()
-        print(f'✓  {len(written)} scenarios')
-        domain_scenarios[d['id']] = written
+        domain_kts[d['id']] = written
+        print(f'✓  {len(written)} KTs')
         time.sleep(1)
 
-    return domain_scenarios
+    return domain_kts
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — KT generation per scenario (N API calls)
+# Phase 4 — Sub-trend clustering (M API calls)
 # ---------------------------------------------------------------------------
 
-def phase4_key_trends(conn, api_key: str, domain_claims: dict, domain_scenarios: dict) -> dict:
-    """
-    Returns {scenario_db_id: [kt_dict_with_db_id, ...]}
-    Writes to domain_key_trends table.
-    """
-    print('\nPhase 4 — Generating Key Trends per scenario…')
-    used_slugs: set = set()
-
-    def unique_slug(base):
-        s = base; n = 2
-        while s in used_slugs:
-            s = f'{base}-{n}'; n += 1
-        used_slugs.add(s); return s
-
-    api_cost = 0.0
-    scenario_kts: dict = {}
-
-    for d in DOMAINS:
-        scenarios = domain_scenarios.get(d['id'], [])
-        claims    = domain_claims[d['id']]  # use domain claim pool for all scenarios
-
-        for scn in scenarios:
-            print(f'  {d["name"]} / {scn["name"][:48]}…', end=' ', flush=True)
-
-            prompt = prompt_scenario_key_trends(d, scn, claims[:CLAIMS_PER_SCN])
-            raw    = call_claude(prompt, api_key)
-            api_cost = check_budget(api_cost, f'Phase4 scn:{scn["_db_id"]}')
-
-            try:
-                result = extract_json(raw)
-            except ValueError as e:
-                print(f'\n  ERROR parsing JSON: {e}')
-                result = {'key_trends': []}
-
-            kts = result.get('key_trends', [])
-            velocity = result.get('scenario_velocity', 'rising')
-
-            # Store velocity on scenario
-            conn.execute('UPDATE domain_scenarios SET plausibility=%s WHERE id=%s',
-                         (velocity, scn['_db_id']))
-
-            written = []
-            for j, kt in enumerate(kts, start=1):
-                slug = unique_slug(f'kt-{slugify(kt["name"])}')
-                kt['_db_id'] = conn.execute("""
-                    INSERT INTO domain_key_trends
-                      (slug, scenario_id, domain_id, name, subtitle, velocity, sort_order)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-                """, (slug, scn['_db_id'], d['id'],
-                      kt['name'], kt.get('subtitle',''), velocity, j)).fetchone()['id']
-                kt['_slug']      = slug
-                kt['_claim_ids'] = [int(cid) for cid in kt.get('claim_ids', [])
-                                    if isinstance(cid, (int, float))]
-                # We'll route the raw claim pool to this KT using claimed IDs as hints
-                written.append(kt)
-
-            conn.commit()
-            scenario_kts[scn['_db_id']] = written
-            print(f'✓  {len(written)} KTs')
-            time.sleep(0.8)
-
-    return scenario_kts
-
-
-# ---------------------------------------------------------------------------
-# Phase 5 — Sub-trend clustering (M API calls)
-# ---------------------------------------------------------------------------
-
-def phase5_sub_trends(conn, api_key: str, domain_claims: dict, domain_scenarios: dict, scenario_kts: dict):
+def phase4_sub_trends(conn, api_key: str, domain_claims: dict, domain_kts: dict):
     """Writes to domain_sub_trends + domain_sub_trend_claims."""
-    print('\nPhase 5 — Clustering sub-trends per Key Trend…')
+    print('\nPhase 4 — Clustering sub-trends per Key Trend…')
     used_slugs: set = set()
     api_cost = 0.0
 
@@ -1018,126 +890,102 @@ def phase5_sub_trends(conn, api_key: str, domain_claims: dict, domain_scenarios:
             all_domain_claims[c['id']] = c
 
     for d in DOMAINS:
-        scenarios = domain_scenarios.get(d['id'], [])
         full_pool = domain_claims[d['id']]  # fallback pool for this domain
+        for kt in domain_kts.get(d['id'], []):
+            # Build claim pool for this KT:
+            # Prefer the claim_ids Claude assigned, then fill from domain pool
+            preferred_ids = set(kt.get('_claim_ids', []))
+            preferred     = [all_domain_claims[cid] for cid in preferred_ids
+                             if cid in all_domain_claims]
+            # Pad with domain pool up to CLAIMS_PER_KT
+            remaining = CLAIMS_PER_KT - len(preferred)
+            if remaining > 0:
+                pad = [c for c in full_pool if c['id'] not in preferred_ids]
+                preferred += pad[:remaining]
 
-        for scn in scenarios:
-            kts = scenario_kts.get(scn['_db_id'], [])
-            for kt in kts:
-                # Build claim pool for this KT:
-                # Prefer the claim_ids Claude assigned, then fill from domain pool
-                preferred_ids = set(kt.get('_claim_ids', []))
-                preferred     = [all_domain_claims[cid] for cid in preferred_ids
-                                 if cid in all_domain_claims]
-                # Pad with domain pool up to CLAIMS_PER_KT
-                remaining = CLAIMS_PER_KT - len(preferred)
-                if remaining > 0:
-                    pad = [c for c in full_pool if c['id'] not in preferred_ids]
-                    preferred += pad[:remaining]
+            if not preferred:
+                print(f'  SKIP {kt["name"][:40]} — no claims')
+                continue
 
-                if not preferred:
-                    print(f'  SKIP {kt["name"][:40]} — no claims')
-                    continue
+            print(f'  {kt["name"][:55]}…', end=' ', flush=True)
 
-                print(f'  {kt["name"][:55]}…', end=' ', flush=True)
+            prompt = prompt_sub_trends(kt['name'], kt.get('subtitle', ''), preferred)
+            raw    = call_claude(prompt, api_key)
+            api_cost = check_budget(api_cost, f'Phase4 kt:{kt["_db_id"]}')
 
-                prompt = prompt_sub_trends(kt['name'], kt.get('subtitle', ''), preferred)
-                raw    = call_claude(prompt, api_key)
-                api_cost = check_budget(api_cost, f'Phase5 kt:{kt["_db_id"]}')
+            try:
+                result = extract_json(raw)
+            except ValueError as e:
+                print(f'\n  ERROR: {e}'); result = {'sub_trends': []}
 
-                try:
-                    result = extract_json(raw)
-                except ValueError as e:
-                    print(f'\n  ERROR: {e}'); result = {'sub_trends': []}
+            # The sub-trend prompt can refine the KT's velocity; honour it if present.
+            velocity = result.get('key_trend_velocity', kt.get('velocity', 'rising'))
+            conn.execute('UPDATE domain_key_trends SET velocity=%s WHERE id=%s',
+                         (velocity, kt['_db_id']))
 
-                velocity = result.get('key_trend_velocity', 'rising')
-                conn.execute('UPDATE domain_key_trends SET velocity=%s WHERE id=%s',
-                             (velocity, kt['_db_id']))
+            sub_trends = result.get('sub_trends', [])
+            for i, st in enumerate(sub_trends, start=1):
+                slug = unique_slug(f'st-{slugify(st["name"])}')
+                st_db_id = conn.execute("""
+                    INSERT INTO domain_sub_trends
+                      (slug, kt_id, domain_id, name, subtitle, description, sort_order)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                """, (slug, kt['_db_id'], d['id'],
+                      st['name'], st.get('subtitle', ''), st['description'], i)).fetchone()['id']
 
-                sub_trends = result.get('sub_trends', [])
-                for i, st in enumerate(sub_trends, start=1):
-                    slug = unique_slug(f'st-{slugify(st["name"])}')
-                    st_db_id = conn.execute("""
-                        INSERT INTO domain_sub_trends
-                          (slug, kt_id, domain_id, name, subtitle, description, sort_order)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id
-                    """, (slug, kt['_db_id'], d['id'],
-                          st['name'], st.get('subtitle', ''), st['description'], i)).fetchone()['id']
+                for cid in st.get('claim_ids', []):
+                    try:
+                        conn.execute("""
+                            INSERT INTO domain_sub_trend_claims
+                              (sub_trend_id, claim_id) VALUES (%s,%s) ON CONFLICT DO NOTHING
+                        """, (st_db_id, int(cid)))
+                    except Exception:
+                        pass
 
-                    for cid in st.get('claim_ids', []):
-                        try:
-                            conn.execute("""
-                                INSERT INTO domain_sub_trend_claims
-                                  (sub_trend_id, claim_id) VALUES (%s,%s) ON CONFLICT DO NOTHING
-                            """, (st_db_id, int(cid)))
-                        except Exception:
-                            pass
-
-                conn.commit()
-                print(f'✓  {len(sub_trends)} sub-trends, vel={velocity}')
-                time.sleep(0.8)
+            conn.commit()
+            print(f'✓  {len(sub_trends)} sub-trends, vel={velocity}')
+            time.sleep(0.8)
 
 
 # ---------------------------------------------------------------------------
-# Phase 6 — Thinker attribution (scenarios + KTs)
+# Phase 5 — Thinker attribution (per Key Trend)
 # ---------------------------------------------------------------------------
 
-def phase6_thinker_attribution(conn, api_key: str, domain_claims: dict, domain_scenarios: dict, scenario_kts: dict):
-    print('\nPhase 6 — Thinker attribution (scenarios + KTs)…')
+def phase5_thinker_attribution(conn, api_key: str, domain_claims: dict, domain_kts: dict):
+    print('\nPhase 5 — Thinker attribution (per Key Trend)…')
     api_cost = 0.0
 
     for d in DOMAINS:
-        claims    = domain_claims[d['id']]
-        scenarios = domain_scenarios.get(d['id'], [])
-
-        for scn in scenarios:
-            # Scenario attribution
-            groups = _collect_by_thinker(claims, max_per=8)
-            if groups:
-                print(f'  scn: {scn["name"][:48]}…', end=' ', flush=True)
-                prompt = prompt_thinker_attribution('scenario', scn['name'], groups)
-                raw    = call_claude(prompt, api_key)
-                api_cost = check_budget(api_cost, f'Phase6 scn:{scn["_db_id"]}')
-                try:
-                    attr = parse_thinker_attribution(extract_json(raw))
-                except Exception:
-                    attr = {'proponents': [], 'skeptics': []}
-                conn.execute('UPDATE domain_scenarios SET proponents=%s, skeptics=%s WHERE id=%s',
-                             (json.dumps(attr['proponents']), json.dumps(attr['skeptics']), scn['_db_id']))
-                print(f'✓  {len(attr["proponents"])} pro, {len(attr["skeptics"])} skep')
-                time.sleep(0.5)
-
-            # KT attribution
-            kts = scenario_kts.get(scn['_db_id'], [])
-            for kt in kts:
-                # Build kt-specific claim pool from preferred ids
-                preferred_ids = set(kt.get('_claim_ids', []))
-                kt_claims = [c for c in claims if c['id'] in preferred_ids] or claims[:60]
-                groups = _collect_by_thinker(kt_claims, max_per=8)
-                if not groups:
-                    continue
-                print(f'    kt: {kt["name"][:48]}…', end=' ', flush=True)
-                prompt = prompt_thinker_attribution('key_trend', kt['name'], groups)
-                raw    = call_claude(prompt, api_key)
-                api_cost = check_budget(api_cost, f'Phase6 kt:{kt["_db_id"]}')
-                try:
-                    attr = parse_thinker_attribution(extract_json(raw))
-                except Exception:
-                    attr = {'proponents': [], 'skeptics': []}
-                conn.execute('UPDATE domain_key_trends SET proponents=%s, skeptics=%s WHERE id=%s',
-                             (json.dumps(attr['proponents']), json.dumps(attr['skeptics']), kt['_db_id']))
-                print(f'✓  {len(attr["proponents"])} pro, {len(attr["skeptics"])} skep')
-                time.sleep(0.5)
+        claims = domain_claims[d['id']]
+        for kt in domain_kts.get(d['id'], []):
+            # Build kt-specific claim pool from preferred ids
+            preferred_ids = set(kt.get('_claim_ids', []))
+            kt_claims = [c for c in claims if c['id'] in preferred_ids] or claims[:60]
+            groups = _collect_by_thinker(kt_claims, max_per=8)
+            if not groups:
+                continue
+            print(f'  kt: {kt["name"][:48]}…', end=' ', flush=True)
+            prompt = prompt_thinker_attribution('key_trend', kt['name'], groups)
+            raw    = call_claude(prompt, api_key)
+            api_cost = check_budget(api_cost, f'Phase5 kt:{kt["_db_id"]}')
+            try:
+                attr = parse_thinker_attribution(extract_json(raw))
+            except Exception:
+                attr = {'proponents': [], 'skeptics': []}
+            conn.execute('UPDATE domain_key_trends SET proponents=%s, skeptics=%s WHERE id=%s',
+                         (json.dumps(attr['proponents']), json.dumps(attr['skeptics']), kt['_db_id']))
+            print(f'✓  {len(attr["proponents"])} pro, {len(attr["skeptics"])} skep')
+            time.sleep(0.5)
 
     conn.commit()
 
 
 # ---------------------------------------------------------------------------
-# Phase 7 — Interrelatedness
+# Phase 6 — Interrelatedness
 # ---------------------------------------------------------------------------
 
-def phase7_interrelatedness(conn, api_key: str, domain_scenarios: dict, scenario_kts: dict):
-    print('\nPhase 7 — Interrelatedness (typed edges)…')
+def phase6_interrelatedness(conn, api_key: str, domain_kts: dict):
+    print('\nPhase 6 — Interrelatedness (typed edges)…')
     api_cost = 0.0
     b_calls  = 0
     MAX_CALLS = 30
@@ -1178,51 +1026,23 @@ def phase7_interrelatedness(conn, api_key: str, domain_scenarios: dict, scenario
         for i in range(0, len(items), size):
             yield items[i:i+size]
 
-    # Gather all scenario nodes
-    scn_nodes = {}
-    for d in DOMAINS:
-        for scn in domain_scenarios.get(d['id'], []):
-            ref = f'scn:{scn["_db_id"]}'
-            scn_nodes[ref] = {
-                'id': ref, 'name': scn['name'],
-                'desc': scn.get('description','')[:120],
-                'type': 'scn', 'domain': d['id'],
-            }
-
     # Gather all KT nodes
     kt_nodes = {}
     for d in DOMAINS:
-        for scn in domain_scenarios.get(d['id'], []):
-            for kt in scenario_kts.get(scn['_db_id'], []):
-                ref = f'kt:{kt["_db_id"]}'
-                kt_nodes[ref] = {
-                    'id': ref, 'name': kt['name'],
-                    'desc': kt.get('subtitle','')[:120],
-                    'type': 'kt', 'domain': d['id'],
-                }
+        for kt in domain_kts.get(d['id'], []):
+            ref = f'kt:{kt["_db_id"]}'
+            kt_nodes[ref] = {
+                'id': ref, 'name': kt['name'],
+                'desc': kt.get('subtitle','')[:120],
+                'type': 'kt', 'domain': d['id'],
+            }
 
-    # -- Scenario–scenario pairs (all) --
-    scn_list = list(scn_nodes.values())
-    scn_pairs = []
-    for i, a in enumerate(scn_list):
-        for b in scn_list[i+1:]:
-            scn_pairs.append({
-                'id_a': a['id'], 'name_a': a['name'], 'desc_a': a['desc'], 'type_a': 'scenario',
-                'id_b': b['id'], 'name_b': b['name'], 'desc_b': b['desc'], 'type_b': 'scenario',
-            })
-
-    for batch in _batches(scn_pairs, 20):
-        links = _run_batch(batch, 'scn-scn')
-        _write_links(links)
-        if b_calls >= MAX_CALLS:
-            break
-
-    # -- KT–KT pairs (capped at 200) --
+    # -- KT–KT pairs (cross-domain, capped at 200) --
     kt_list = list(kt_nodes.values())
     kt_pairs = []
     for i, a in enumerate(kt_list):
         for b in kt_list[i+1:]:
-            # Only cross-domain pairs (within-domain KTs already share scenario context)
+            # Only cross-domain pairs (within-domain KTs already share domain context)
             if a['domain'] != b['domain']:
                 kt_pairs.append({
                     'id_a': a['id'], 'name_a': a['name'], 'desc_a': a['desc'], 'type_a': 'key_trend',
@@ -1237,15 +1057,15 @@ def phase7_interrelatedness(conn, api_key: str, domain_scenarios: dict, scenario
         links = _run_batch(batch, 'kt-kt')
         _write_links(links)
 
-    print(f'  Phase 7 complete: {b_calls} calls total.')
+    print(f'  Phase 6 complete: {b_calls} calls total.')
 
 
 # ---------------------------------------------------------------------------
-# Phase 8 — Synthesis insights per domain (4 API calls)
+# Phase 7 — Synthesis insights per domain (4 API calls)
 # ---------------------------------------------------------------------------
 
-def phase8_synthesis(conn, api_key: str, domain_claims: dict):
-    print('\nPhase 8 — Synthesis insights per domain (4 calls)…')
+def phase7_synthesis(conn, api_key: str, domain_claims: dict):
+    print('\nPhase 7 — Synthesis insights per domain (4 calls)…')
     used_slugs: set = set()
     api_cost = 0.0
 
@@ -1296,20 +1116,58 @@ def phase8_synthesis(conn, api_key: str, domain_claims: dict):
 
 
 # ---------------------------------------------------------------------------
-# Phase 9 — Export map.json
+# Phase 8 — Hero-stat selection (per KT, SQL — no API)
 # ---------------------------------------------------------------------------
 
-def _classify_horizon(h: str) -> str:
-    if not h:
-        return '3-5 years'
-    years = re.findall(r'\d{4}', h.replace('–','-').replace('—','-'))
-    if len(years) < 2:
-        return '3-5 years'
-    span = int(years[1]) - int(years[0])
-    if span <= 3:   return '1-3 years'
-    elif span <= 5: return '3-5 years'
-    else:           return '5-10 years'
+def select_hero_stat(conn, kt_id) -> dict:
+    """Return the single strongest dated, attributable statistic among a Key
+    Trend's claims, as {value, thinker, source, year} — or None if it has none.
+    Ranked by claim weight × thinker credibility; statistics come from the
+    `claims.statistic` / `claims.has_statistic` fields (process_raw extracts them)."""
+    row = conn.execute("""
+        SELECT c.statistic, t.name AS thinker,
+               s.title AS source, s.date_published AS pub_date
+        FROM domain_sub_trends st
+        JOIN domain_sub_trend_claims stc ON stc.sub_trend_id = st.id
+        JOIN claims c   ON c.id = stc.claim_id
+        JOIN thinkers t ON t.id = c.thinker_id
+        LEFT JOIN sources s ON s.id = c.source_id
+        WHERE st.kt_id = %s
+          AND c.has_statistic IS TRUE
+          AND c.statistic IS NOT NULL
+          AND c.duplicate_of IS NULL
+        ORDER BY COALESCE(c.claim_weight,0)
+                 * (GREATEST(COALESCE(t.credibility_score,50.0), 30.0) / 100.0) DESC
+        LIMIT 1
+    """, (kt_id,)).fetchone()
+    if not row:
+        return None
+    return {
+        'value':   row['statistic'],
+        'thinker': row['thinker'] or '',
+        'source':  row['source'] or '',
+        'year':    str(row['pub_date'])[:4] if row['pub_date'] else '',
+    }
 
+
+def phase8_hero_stats(conn):
+    """Persist one hero statistic per Key Trend to domain_key_trends.hero_stat."""
+    print('\nPhase 8 — Selecting hero statistics per Key Trend (SQL, no API)…')
+    kt_ids = [r['id'] for r in conn.execute('SELECT id FROM domain_key_trends').fetchall()]
+    n = 0
+    for kt_id in kt_ids:
+        hero = select_hero_stat(conn, kt_id)
+        conn.execute('UPDATE domain_key_trends SET hero_stat=%s::jsonb WHERE id=%s',
+                     (json.dumps(hero) if hero else None, kt_id))
+        if hero:
+            n += 1
+    conn.commit()
+    print(f'  ✓  {n}/{len(kt_ids)} Key Trends have a hero statistic.')
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — Export map.json
+# ---------------------------------------------------------------------------
 
 def _attr(stored):
     """Parse stored proponents/skeptics JSON into (names, detail[{name, quote}]).
@@ -1330,11 +1188,13 @@ def build_map_json_v2(conn) -> dict:
     today = date.today().isoformat()
 
     # ---- domains ----
+    # Key Trends attach directly to a domain; we read them here to populate each
+    # domain's key_trend_ids (in sort order) for the front-end's domain → KT drill-down.
     d_rows = conn.execute('SELECT * FROM domains_v2 ORDER BY sort_order').fetchall()
     domains_j = []
     for d in d_rows:
-        scn_rows = conn.execute(
-            'SELECT id FROM domain_scenarios WHERE domain_id=%s ORDER BY sort_order',
+        kt_rows = conn.execute(
+            'SELECT id FROM domain_key_trends WHERE domain_id=%s ORDER BY sort_order',
             (d['id'],)
         ).fetchall()
         si_rows = conn.execute(
@@ -1347,40 +1207,13 @@ def build_map_json_v2(conn) -> dict:
             'label':             d['label'],
             'short_description': d['short_description'],
             'description':       d['description'],
-            'scenario_ids':      [r['id'] for r in scn_rows],
+            'key_trend_ids':     [f'kt-{r["id"]}' for r in kt_rows],
             'synthesis_insight_ids': [r['id'] for r in si_rows],
-        })
-
-    # ---- scenarios ----
-    scn_rows_all = conn.execute("""
-        SELECT id, slug, domain_id, name, description, horizon, plausibility,
-               sort_order, proponents, skeptics
-        FROM domain_scenarios ORDER BY domain_id, sort_order
-    """).fetchall()
-    scenarios_j = []
-    for scn in scn_rows_all:
-        kt_rows = conn.execute(
-            'SELECT id FROM domain_key_trends WHERE scenario_id=%s ORDER BY sort_order',
-            (scn['id'],)
-        ).fetchall()
-        scenarios_j.append({
-            'id':          f'scn-{scn["slug"]}' if not str(scn["slug"]).startswith('scn-') else scn['slug'],
-            'db_id':       scn['id'],
-            'domain_id':   scn['domain_id'],
-            'name':        scn['name'],
-            'description': scn['description'],
-            'horizon':     scn['horizon'] or '2026–2030',
-            'plausibility': scn['plausibility'] or 'medium',
-            'key_trend_ids': [f'kt-{r["id"]}' for r in kt_rows],
-            'proponents':  _attr(scn['proponents'])[0],
-            'skeptics':    _attr(scn['skeptics'])[0],
-            'proponents_detail': _attr(scn['proponents'])[1],
-            'skeptics_detail':   _attr(scn['skeptics'])[1],
         })
 
     # ---- key_trends ----
     kt_rows_all = conn.execute("""
-        SELECT kt.id, kt.slug, kt.scenario_id, kt.domain_id,
+        SELECT kt.id, kt.slug, kt.domain_id,
                kt.name, kt.subtitle, kt.velocity, kt.sort_order,
                kt.proponents, kt.skeptics, kt.hero_stat
         FROM domain_key_trends kt
@@ -1395,13 +1228,12 @@ def build_map_json_v2(conn) -> dict:
         key_trends_j.append({
             'id':          f'kt-{kt["id"]}',
             'db_id':       kt['id'],
-            'scenario_id': f'scn-{kt["scenario_id"]}',
             'domain_id':   kt['domain_id'],
             'name':        kt['name'],
             'subtitle':    kt['subtitle'],
             'description': kt['subtitle'],   # back-compat alias
             'velocity':    kt['velocity'] or 'rising',
-            'hero_stat':   kt['hero_stat'],  # {value, year, source} or null (Phase 2 fills/renders)
+            'hero_stat':   kt['hero_stat'],  # {value, thinker, source, year} or null
             'sub_trend_ids': [f'st-{r["id"]}' for r in st_rows],
             'proponents':  _attr(kt['proponents'])[0],
             'skeptics':    _attr(kt['skeptics'])[0],
@@ -1547,9 +1379,6 @@ def build_map_json_v2(conn) -> dict:
     for kt in key_trends_j:
         for t in kt['proponents'] + kt['skeptics']:
             _add_t(t, 'key_trend', kt['id'], kt['name'])
-    for scn in scenarios_j:
-        for t in scn['proponents'] + scn['skeptics']:
-            _add_t(t, 'scenario', scn['id'], scn['name'])
 
     # ---- index: by_velocity ----
     by_velocity: dict = {}
@@ -1558,17 +1387,10 @@ def build_map_json_v2(conn) -> dict:
         by_velocity.setdefault(v, [])
         by_velocity[v].append(kt['id'])
 
-    # ---- index: by_horizon ----
-    by_horizon: dict = {'1-3 years': [], '3-5 years': [], '5-10 years': []}
-    for scn in scenarios_j:
-        bucket = _classify_horizon(scn.get('horizon',''))
-        by_horizon[bucket].append(scn['id'])
-
     return {
         'updated':             today,
         'architecture':        'domain-first-v2',
         'domains':             domains_j,
-        'scenarios':           scenarios_j,
         'key_trends':          key_trends_j,
         'sub_trends':          sub_trends_j,
         'claims':              claims_j,
@@ -1578,7 +1400,6 @@ def build_map_json_v2(conn) -> dict:
         'domain_flows':        flows_j,
         'by_thinker':          by_thinker,
         'by_velocity':         by_velocity,
-        'by_horizon':          by_horizon,
     }
 
 
@@ -1624,9 +1445,8 @@ def main():
         _write_map_document(conn, out)
         _write_synthesis_document(conn, out)
         print("✓  map written → documents['map']")
-        print(f'   {len(out["domains"])} domains · {len(out["scenarios"])} scenarios · '
-              f'{len(out["key_trends"])} KTs · {len(out["sub_trends"])} sub-trends · '
-              f'{len(out["links"])} links')
+        print(f'   {len(out["domains"])} domains · {len(out["key_trends"])} KTs · '
+              f'{len(out["sub_trends"])} sub-trends · {len(out["links"])} links')
         conn.close(); return
 
     # ── Always reset v2 tables ───────────────────────────────────────────────
@@ -1657,31 +1477,23 @@ def main():
     # ── Phase 2: claim routing (free, SQL) ───────────────────────────────────
     domain_claims = phase2_claim_routing(conn)
 
-    # TODO(v2 coherence cookbook): insert the "coherence curation layer" here, between
-    # claim routing and content generation. This is a planning-and-curation pass that
-    # first drafts the full skeleton of ALL scenarios / KTs / sub-trends across every
-    # domain, then evaluates the whole set holistically for coherence, diversification,
-    # and deliberate edge — pruning, merging, and re-balancing the skeleton — BEFORE
-    # Phases 3–5 generate full content against the approved plan. Use INSIGHTS_MODEL
-    # (Opus 4.7) for this layer's holistic reasoning.
+    # ── Phase 3: Key Trend generation per domain ─────────────────────────────
+    domain_kts = phase3_key_trends(conn, api_key, domain_claims)
 
-    # ── Phase 3: scenario generation ─────────────────────────────────────────
-    domain_scenarios = phase3_scenarios(conn, api_key, domain_claims)
+    # ── Phase 4: sub-trend clustering ────────────────────────────────────────
+    phase4_sub_trends(conn, api_key, domain_claims, domain_kts)
 
-    # ── Phase 4: KT generation ───────────────────────────────────────────────
-    scenario_kts = phase4_key_trends(conn, api_key, domain_claims, domain_scenarios)
+    # ── Phase 5: thinker attribution ─────────────────────────────────────────
+    phase5_thinker_attribution(conn, api_key, domain_claims, domain_kts)
 
-    # ── Phase 5: sub-trend clustering ────────────────────────────────────────
-    phase5_sub_trends(conn, api_key, domain_claims, domain_scenarios, scenario_kts)
+    # ── Phase 6: interrelatedness ─────────────────────────────────────────────
+    phase6_interrelatedness(conn, api_key, domain_kts)
 
-    # ── Phase 6: thinker attribution ─────────────────────────────────────────
-    phase6_thinker_attribution(conn, api_key, domain_claims, domain_scenarios, scenario_kts)
+    # ── Phase 7: synthesis insights ───────────────────────────────────────────
+    phase7_synthesis(conn, api_key, domain_claims)
 
-    # ── Phase 7: interrelatedness ─────────────────────────────────────────────
-    phase7_interrelatedness(conn, api_key, domain_scenarios, scenario_kts)
-
-    # ── Phase 8: synthesis insights ───────────────────────────────────────────
-    phase8_synthesis(conn, api_key, domain_claims)
+    # ── Phase 8: hero-stat selection ──────────────────────────────────────────
+    phase8_hero_stats(conn)
 
     # ── Phase 9: export ───────────────────────────────────────────────────────
     print('\nPhase 9 — Exporting map…')
@@ -1691,8 +1503,8 @@ def main():
     conn.close()
 
     print("\n✓  map → documents['map']")
-    print(f'   {len(out["domains"])} domains · {len(out["scenarios"])} scenarios · '
-          f'{len(out["key_trends"])} KTs · {len(out["sub_trends"])} sub-trends')
+    print(f'   {len(out["domains"])} domains · {len(out["key_trends"])} KTs · '
+          f'{len(out["sub_trends"])} sub-trends')
     print(f'   {len(out["claims"])} claims · {len(out["synthesis_insights"])} insights · '
           f'{len(out["links"])} links')
     print('\nDone.')

@@ -19,11 +19,10 @@ export default function Map() {
   if (!data)   return <MapError />
 
   const isV2 = data.architecture === 'domain-first-v2'
-  const { macros, scenarios, key_trends, sub_trends, claims } = data
+  const { macros, key_trends, sub_trends, claims } = data
   if (isV2) {
     if (
       !Array.isArray(data.domains) ||
-      !Array.isArray(scenarios)    ||
       !Array.isArray(key_trends)   ||
       !Array.isArray(sub_trends)   ||
       !Array.isArray(claims)

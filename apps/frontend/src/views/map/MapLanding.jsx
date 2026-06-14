@@ -70,8 +70,8 @@ const SPRING = { stiffness: 60, damping: 20, mass: 1.2 }
 export default function MapLanding() {
   const {
     isV2, domainsArr,
-    scenarios, key_trends, sub_trends, claims, links,
-    scenariosByDomain, ktsByDomain,
+    key_trends, sub_trends, claims, links,
+    ktsByDomain,
   } = useMapLookup()
 
   const navigate = useNavigate()
@@ -137,7 +137,6 @@ export default function MapLanding() {
   }, [phase, reducedMotion, navigate])
 
   // Stats
-  const scenarioCount = isV2 ? scenarios.length : 0
   const ktCount       = key_trends.length
   const stCount       = sub_trends.length
   const claimCount    = claims.length
@@ -176,7 +175,6 @@ export default function MapLanding() {
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
             <MetaStat value={pad(4, 2)} label="Domains" />
-            {isV2 && scenarioCount > 0 && <><Sep /><MetaStat value={pad(scenarioCount, 2)} label="Scenarios" /></>}
             <Sep />
             <MetaStat value={pad(ktCount, 2)} label="Key Trends" />
             <Sep />
@@ -225,9 +223,8 @@ export default function MapLanding() {
               const palette = DOMAIN_COLORS[domain.id] || DOMAIN_COLORS.society
               const spatial = DOMAIN_SPATIAL[domain.id]
               if (!spatial) return null
-              const domainScenarios = scenariosByDomain[domain.id] || []
-              const domainKts       = ktsByDomain[domain.id]       || []
-              const hasLiveData     = isV2 && domainScenarios.length > 0
+              const domainKts   = ktsByDomain[domain.id] || []
+              const hasLiveData = isV2 && domainKts.length > 0
 
               return (
                 <DomainCard
@@ -236,7 +233,6 @@ export default function MapLanding() {
                   spatial={spatial}
                   cardIndex={i}
                   hasLiveData={hasLiveData}
-                  scenarioCount={domainScenarios.length}
                   ktCount={domainKts.length}
                   phase={phase}
                   isSelected={selectedId === domain.id}
@@ -262,16 +258,14 @@ export default function MapLanding() {
             />
             {domains.map((domain) => {
               const palette = DOMAIN_COLORS[domain.id] || DOMAIN_COLORS.society
-              const domainScenarios = scenariosByDomain[domain.id] || []
-              const domainKts       = ktsByDomain[domain.id]       || []
-              const hasLiveData     = isV2 && domainScenarios.length > 0
+              const domainKts   = ktsByDomain[domain.id] || []
+              const hasLiveData = isV2 && domainKts.length > 0
 
               return (
                 <MobileDomainCard
                   key={domain.id}
                   domain={{ ...domain, ...palette }}
                   hasLiveData={hasLiveData}
-                  scenarioCount={domainScenarios.length}
                   ktCount={domainKts.length}
                   isSelected={selectedId === domain.id}
                   isOtherSelected={selectedId !== null && selectedId !== domain.id}
@@ -292,7 +286,7 @@ export default function MapLanding() {
 
 function DomainCard({
   domain, spatial, cardIndex,
-  hasLiveData, scenarioCount, ktCount,
+  hasLiveData, ktCount,
   phase, isSelected, isHovered, isOtherSelected,
   reducedMotion,
   onHoverStart, onHoverEnd, onClick,
@@ -427,7 +421,7 @@ function DomainCard({
         {hasLiveData && (
           <div className="mt-4 pt-3 border-t border-neutral-800/60 flex items-center justify-between">
             <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-500">
-              {pad(scenarioCount, 2)} scenarios · {pad(ktCount, 2)} key trends
+              {pad(ktCount, 2)} key trends
             </span>
             <span
               className="font-mono text-[9px] uppercase tracking-widest"
@@ -440,7 +434,7 @@ function DomainCard({
         {!hasLiveData && (
           <div className="mt-4 pt-3 border-t border-neutral-800/60">
             <span className="font-mono text-[9px] uppercase tracking-widest text-neutral-600">
-              Scenarios generating…
+              Key Trends generating…
             </span>
           </div>
         )}
@@ -453,7 +447,7 @@ function DomainCard({
 
 function MobileDomainCard({
   domain,
-  hasLiveData, scenarioCount, ktCount,
+  hasLiveData, ktCount,
   isSelected, isOtherSelected, phase,
   onClick,
 }) {
@@ -491,7 +485,7 @@ function MobileDomainCard({
         <p className="text-[13px] text-neutral-400 leading-relaxed">{domain.short}</p>
         {hasLiveData && (
           <p className="font-mono text-[9px] uppercase tracking-widest text-neutral-500 mt-3 pt-2 border-t border-neutral-800/60">
-            {pad(scenarioCount, 2)} scenarios · {pad(ktCount, 2)} key trends
+            {pad(ktCount, 2)} key trends
           </p>
         )}
       </div>

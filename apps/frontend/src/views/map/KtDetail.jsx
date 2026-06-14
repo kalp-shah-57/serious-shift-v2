@@ -1,9 +1,9 @@
 /**
- * KtDetail — /map/:domainSlug/:scenarioSlug/:ktSlug
+ * KtDetail — /map/:domainSlug/:ktSlug
  *
- * The third layer of the hierarchy. Renders the key trend's hero
- * (name + velocity + description + proponents/skeptics) and below it
- * a grid of the 5 sub-trends as warpable cards. Click a sub-trend →
+ * The second layer of the hierarchy (scenario layer removed). Renders the key
+ * trend's hero (name + subtitle + velocity + hero statistic + proponents/skeptics)
+ * and below it a grid of the sub-trends as warpable cards. Click a sub-trend →
  * warp into the reading layer.
  */
 import { useParams, useNavigate } from 'react-router-dom'
@@ -21,16 +21,15 @@ import { paletteFor, VELOCITY_LABEL, pad } from './palette'
 import { STAGGER_CARD, EASE_GENTLE } from './motion'
 
 export default function KtDetail() {
-  const { domainSlug, scenarioSlug, ktSlug: kSlug } = useParams()
+  const { domainSlug, ktSlug: kSlug } = useParams()
   const {
     isV2, domainMap,
     subTrendsByKtId, claimsBySubTrendId,
-    scenarioBySlug, ktBySlug, subSlug,
+    ktBySlug, subSlug,
   } = useMapLookup()
 
   const domain   = domainMap[domainSlug]
-  const scenario = scenarioBySlug(domainSlug, scenarioSlug)
-  const kt       = ktBySlug(domainSlug, scenarioSlug, kSlug)
+  const kt       = ktBySlug(domainSlug, kSlug)
   const palette  = paletteFor(domainSlug)
   const subs     = kt ? (subTrendsByKtId[kt.id] || []) : []
 
@@ -43,8 +42,8 @@ export default function KtDetail() {
   const t = entranceTiming(isWarpEntry)
   const settleStagger = STAGGER_CARD + 0.04
 
-  if (!isV2 || !domain || !scenario || !kt) {
-    return <NotFound to={`/map/${domainSlug}/${scenarioSlug || ''}`} label="key trend" />
+  if (!isV2 || !domain || !kt) {
+    return <NotFound to={`/map/${domainSlug}`} label="key trend" />
   }
 
   const velocityLabel = VELOCITY_LABEL[kt.velocity] || kt.velocity || ''
@@ -65,7 +64,6 @@ export default function KtDetail() {
         crumbs={[
           { label: 'Home', to: '/map' },
           { label: domain.name, to: `/map/${domainSlug}` },
-          { label: scenario.name, to: `/map/${domainSlug}/${scenarioSlug}` },
           { label: kt.name },
         ]}
       />
@@ -117,6 +115,32 @@ export default function KtDetail() {
             >
               {kt.description}
             </motion.p>
+          )}
+
+          {kt.hero_stat?.value && (
+            <motion.div
+              initial={HIDDEN_UP}
+              animate={mounted ? VISIBLE : undefined}
+              transition={{ duration: t.dur, ease: t.ease, delay: t.base + 0.22 }}
+              className="max-w-3xl mb-6 rounded-lg border pl-5 pr-5 py-4"
+              style={{
+                borderColor: `color-mix(in oklab, ${palette.color} 30%, transparent)`,
+                background: `color-mix(in oklab, ${palette.color} 6%, var(--map-surface-strong))`,
+              }}
+            >
+              <p className="font-mono text-[9px] uppercase tracking-widest text-neutral-500 mb-1.5">
+                The number that matters
+              </p>
+              <p className="font-editorial text-xl sm:text-2xl leading-snug text-cream">
+                {kt.hero_stat.value}
+              </p>
+              {(kt.hero_stat.thinker || kt.hero_stat.source || kt.hero_stat.year) && (
+                <p className="mt-2 text-[11px] text-neutral-500">
+                  {[kt.hero_stat.thinker, kt.hero_stat.source, kt.hero_stat.year]
+                    .filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </motion.div>
           )}
 
           {(kt.proponents?.length > 0 || kt.skeptics?.length > 0) && (
@@ -186,7 +210,7 @@ export default function KtDetail() {
                       onLaunch={() =>
                         launch(
                           stSlug,
-                          `/map/${domainSlug}/${scenarioSlug}/${kSlug}/${stSlug}`,
+                          `/map/${domainSlug}/${kSlug}/${stSlug}`,
                         )
                       }
                     />

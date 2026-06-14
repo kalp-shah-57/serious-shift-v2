@@ -79,8 +79,7 @@ bookkeeping table and isn't listed.)
 | Table | Purpose |
 |---|---|
 | `domains_v2` | 4 strategic domains |
-| `domain_scenarios` | scenarios per domain |
-| `domain_key_trends` | key trends per scenario |
+| `domain_key_trends` | key trends per domain (≥8 each; attach directly to a domain) |
 | `domain_sub_trends` | sub-trends per key trend |
 | `domain_sub_trend_claims` | sub-trends ↔ claims |
 | `domain_synthesis_insights` | synthesis insights per domain |

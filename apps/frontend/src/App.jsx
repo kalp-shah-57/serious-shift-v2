@@ -10,7 +10,6 @@ import Daily from './views/Daily'
 import MapLanding     from './views/map/MapLanding'
 import MacroDetail    from './views/map/MacroDetail'
 import DomainDetail   from './views/map/DomainDetail'
-import ScenarioDetail from './views/map/ScenarioDetail'
 import KtDetail       from './views/map/KtDetail'
 import SubTrendDetail from './views/map/SubTrendDetail'
 import SynthesisIndex from './views/map/SynthesisIndex'
@@ -138,12 +137,12 @@ export default function App() {
             <Route path="synthesis" element={<SynthesisIndex />} />
             <Route path="thinkers" element={<ThinkerIndex />} />
             <Route path="thinkers/:slug" element={<ThinkerDetail />} />
-            {/* Deep hierarchy — slug-based, cinematic warp at every layer */}
+            {/* Deep hierarchy — slug-based, cinematic warp at every layer.
+               Scenario layer removed: domain → key trend → sub-trend. */}
             <Route path=":domainSlug" element={<DomainDetail />} />
-            <Route path=":domainSlug/:scenarioSlug" element={<ScenarioDetail />} />
-            <Route path=":domainSlug/:scenarioSlug/:ktSlug" element={<KtDetail />} />
+            <Route path=":domainSlug/:ktSlug" element={<KtDetail />} />
             <Route
-              path=":domainSlug/:scenarioSlug/:ktSlug/:subTrendSlug"
+              path=":domainSlug/:ktSlug/:subTrendSlug"
               element={<SubTrendDetail />}
             />
           </Route>
