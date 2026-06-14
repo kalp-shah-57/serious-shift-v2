@@ -874,7 +874,12 @@ def scrape_thinker(cfg, mode, global_since, until, log, conn, auto_since, error_
     for src in cfg.get('sources', []):
         method   = src.get('method', 'manual')
         platform = src.get('platform', method)
-        src_url  = src.get('url', src.get('channel_url', src.get('rss', 'unknown')))
+        # Stable per-source identifier for the watermark key. Use `or` (not
+        # dict.get defaults): a manifest row has all of url/channel_url/rss/handle
+        # as keys, but most are NULL — e.g. a YouTube source sets only
+        # channel_url, so `src.get('url', …)` would return None, not fall through.
+        src_url  = (src.get('url') or src.get('channel_url') or src.get('rss')
+                    or src.get('handle') or 'unknown')
 
         # Determine effective since for this source
         if auto_since and thinker_id is not None:
