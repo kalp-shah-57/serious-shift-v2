@@ -43,6 +43,8 @@ relevant `steps/` file; shared plumbing lives in `core/`.**
 | `RAW_CONTENT_DIR` | no | default `./raw_content` |
 | `SS_LOGS_DIR` | no | default `./logs` |
 | `SS_MAX_WORKERS` | no | parallelism for scrape/extract/generate (default `8`). Lower it if you hit API rate limits. |
+| `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` | no | route YouTube transcript fetches through a Webshare residential proxy — needed on cloud hosts, where YouTube IP-blocks datacenter IPs. |
+| `YOUTUBE_PROXY_URL` | no | alternative to Webshare: any `http://user:pass@host:port` proxy for YouTube (used for both yt-dlp listing and transcripts). |
 
 Run modules from the **repo root** (raw_content + logs are cwd-relative).
 

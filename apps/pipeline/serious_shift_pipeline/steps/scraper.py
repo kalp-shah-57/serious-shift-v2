@@ -715,6 +715,47 @@ def scrape_blog(thinker_name, cfg, since, until, log, error_log=None):
 # YOUTUBE SCRAPER
 # ============================================================
 
+def _youtube_proxy_url():
+    """Generic proxy URL for YouTube, if configured (http://user:pass@host:port)."""
+    return os.environ.get('YOUTUBE_PROXY_URL')
+
+
+def _build_ytt():
+    """YouTubeTranscriptApi, optionally routed through a proxy.
+
+    YouTube blocks transcript requests from most datacenter/cloud IPs (Railway,
+    AWS, …). To make YouTube work from a cloud host, set either:
+      * WEBSHARE_PROXY_USERNAME + WEBSHARE_PROXY_PASSWORD  (Webshare residential), or
+      * YOUTUBE_PROXY_URL = http://user:pass@host:port      (any HTTP proxy)
+    Without one of these, transcript fetches from a cloud IP will be IP-blocked and
+    skipped (the rest of the pipeline still runs).
+    """
+    from youtube_transcript_api import YouTubeTranscriptApi
+    ws_user = os.environ.get('WEBSHARE_PROXY_USERNAME')
+    ws_pass = os.environ.get('WEBSHARE_PROXY_PASSWORD')
+    generic = _youtube_proxy_url()
+    try:
+        if ws_user and ws_pass:
+            from youtube_transcript_api.proxies import WebshareProxyConfig
+            return YouTubeTranscriptApi(proxy_config=WebshareProxyConfig(
+                proxy_username=ws_user, proxy_password=ws_pass))
+        if generic:
+            from youtube_transcript_api.proxies import GenericProxyConfig
+            return YouTubeTranscriptApi(proxy_config=GenericProxyConfig(
+                http_url=generic, https_url=generic))
+    except Exception as e:  # noqa: BLE001 — proxy is best-effort; fall back to direct
+        print(f"    ⚠  YouTube proxy config failed ({e}); continuing without a proxy.")
+    return YouTubeTranscriptApi()
+
+
+def _is_ip_block(exc) -> bool:
+    """True if the exception is YouTube IP-blocking us (cloud IP, no proxy)."""
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    return (name in ('RequestBlocked', 'IpBlocked')
+            or 'blocking requests' in msg or 'ipblocked' in msg)
+
+
 def scrape_youtube(thinker_name, cfg, since, until, log):
     """
     YouTube transcript scraper. Returns (newest_date_fetched_or_None, count_fetched).
@@ -734,6 +775,8 @@ def scrape_youtube(thinker_name, cfg, since, until, log):
         '--no-warnings', '--quiet',
         '--match-filter', f'upload_date >= {since.replace("-","")}'
     ]
+    if _youtube_proxy_url():  # route listing through the same proxy as transcripts
+        cmd += ['--proxy', _youtube_proxy_url()]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except Exception as e:
@@ -774,8 +817,7 @@ def scrape_youtube(thinker_name, cfg, since, until, log):
     if not videos:
         return None, 0
 
-    from youtube_transcript_api import YouTubeTranscriptApi
-    ytt = YouTubeTranscriptApi()
+    ytt = _build_ytt()
 
     fetched = 0
     newest_date = None
@@ -804,6 +846,13 @@ def scrape_youtube(thinker_name, cfg, since, until, log):
                 print(f"    FETCHED: {title[:50]} ({len(text)} chars)")
         except Exception as e:
             log.log('failed', thinker_name, platform, title, url, str(e))
+            if _is_ip_block(e):
+                # The whole channel is blocked from this IP — don't hammer every
+                # video (each would sleep + fail identically). Stop here.
+                print(f"    ⛔  YouTube is IP-blocking transcript requests (cloud IP). "
+                      f"Skipping YouTube for {thinker_name}. Set WEBSHARE_PROXY_USERNAME/"
+                      f"WEBSHARE_PROXY_PASSWORD or YOUTUBE_PROXY_URL to enable it.")
+                break
             print(f"    FAILED: {title[:50]} — {e}")
 
     return newest_date, fetched
