@@ -299,12 +299,14 @@ def route_claims_for_domain(conn, domain: dict, limit: int = CLAIMS_PER_DOM) -> 
     secondary = domain['secondary_claim_domains']
     keywords  = domain['tech_keywords']
 
+    # No DISTINCT: c.id (PK) is selected and the joins are 1:1 (one thinker, at
+    # most one source per claim), so rows are already unique — and DISTINCT would
+    # forbid ordering by the computed score expression below.
     SELECT = """
-        SELECT DISTINCT c.id, c.claim_text, c.consumer_implication,
+        SELECT c.id, c.claim_text, c.consumer_implication,
                c.signal_strength, c.specificity, c.domain AS claim_domain,
                t.name AS thinker, t.credibility_score,
-               s.title AS source_title, s.date_published,
-               c.claim_weight, c.freshness_score
+               s.title AS source_title, s.date_published
         FROM claims c
         JOIN thinkers t ON c.thinker_id = t.id
         LEFT JOIN sources s ON c.source_id = s.id
